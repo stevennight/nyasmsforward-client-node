@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
 }
 
 // VERSION (MAJOR.MINOR.PATCH) is the single source of truth; the release workflow checks it against the git tag.
@@ -56,6 +57,11 @@ android {
         buildConfig = true
     }
 
+    testOptions {
+        // android.* stubs return defaults instead of throwing, so pure logic that touches e.g. Log can be unit-tested.
+        unitTests.isReturnDefaultValues = true
+    }
+
     lint {
         warningsAsErrors = false
         abortOnError = true
@@ -73,8 +79,14 @@ dependencies {
     implementation(libs.androidx.compose.ui)
     implementation(libs.androidx.compose.material3)
     implementation(libs.androidx.compose.ui.tooling.preview)
+    implementation(libs.okhttp)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.kotlinx.coroutines.core)
+    implementation(libs.androidx.work.runtime)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)
     testImplementation(libs.kotlin.test)
+    testImplementation(libs.okhttp.mockwebserver)
+    testImplementation(libs.sqlite.jdbc)
 }

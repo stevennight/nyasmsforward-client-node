@@ -1,18 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!--
-      M0 only needs the network. SMS permissions arrive with the features that use them and are requested at
-      the moment the user turns the feature on: RECEIVE_SMS (M1), SEND_SMS (M3), READ_SMS (M4, opt-in only).
-    -->
+    <!-- Report received SMS to the server. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- The whole point of this app: receive SMS. Requested at runtime from the status screen. -->
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+
+    <!-- Optional: read the SIM operator names for the pairing request. Slot numbers work without it. -->
+    <uses-permission android:name="android.permission.READ_PHONE_STATE" />
+
+    <!-- Optional (Android 13+): tell the user when the token was revoked and the phone must be paired again. -->
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+
+    <!--
+      Later milestones add what they use, each requested only when the user turns the feature on:
+      SEND_SMS (M3, reply / send tasks), READ_SMS (M4, opt-in "sync sent messages" / history backfill).
+    -->
+
+    <!-- The receiver phone may be a tablet with a SIM or a phone without telephony hardware in tests. -->
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
+
+    <!--
+      usesCleartextTraffic only lifts the platform block on http://. The app itself refuses http:// unless the address is
+      localhost or a private LAN address (ServerUrl), so public servers are always reached over TLS.
+    -->
     <application
+        android:name=".NodeApplication"
         android:allowBackup="false"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.NyaSmsForwardNode">
+        android:theme="@style/Theme.NyaSmsForwardNode"
+        android:usesCleartextTraffic="true">
+
         <activity
             android:name=".MainActivity"
             android:exported="true">
@@ -21,6 +42,19 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!--
+          Only the system may deliver SMS_RECEIVED: BROADCAST_SMS is a signature-level permission that regular apps
+          cannot hold, so another app cannot inject fake messages into the queue.
+        -->
+        <receiver
+            android:name=".sms.SmsReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter android:priority="999">
+                <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
     </application>
 
 </manifest>
