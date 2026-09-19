@@ -28,8 +28,7 @@ NyaSmsForward 由三个独立仓库组成，互不依赖代码，只通过服务
 
 ```powershell
 # 在 nyasmsforward-server 仓库，用一个全新的空数据目录启动服务
-$env:NYASMS_LISTEN = "127.0.0.1:18081"; $env:NYASMS_DATA = "$env:TEMP
-sf-e2e"; go run ./cmd/server
+$env:NYASMS_LISTEN = "127.0.0.1:18081"; $env:NYASMS_DATA = "$env:TEMP\nsf-e2e"; go run ./cmd/server
 # 在本仓库
 $env:NYASMS_E2E_URL = "http://127.0.0.1:18081"; ./gradlew testDebugUnitTest --tests "*RealServerE2ETest"
 ```
