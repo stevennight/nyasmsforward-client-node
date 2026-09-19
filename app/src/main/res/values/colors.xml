@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="brand">#2563EB</color>
+    <color name="window_light">#F6F7F9</color>
+    <color name="window_dark">#0F1319</color>
+</resources>

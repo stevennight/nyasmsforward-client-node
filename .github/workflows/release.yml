@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - v*
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  android-release:
+    name: Build and publish signed APK
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Check tag matches VERSION
+        id: version
+        run: |
+          version="$(tr -d '\r\n' < VERSION)"
+          if [ "${GITHUB_REF_NAME}" != "v${version}" ]; then
+            echo "Tag ${GITHUB_REF_NAME} does not match VERSION ${version}" >&2
+            exit 1
+          fi
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Java
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
+
+      - name: Verify source
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon lint testDebugUnitTest
+
+      - name: Restore Android signing key
+        run: |
+          for name in ANDROID_KEYSTORE_BASE64 ANDROID_KEYSTORE_PASSWORD ANDROID_KEY_ALIAS ANDROID_KEY_PASSWORD; do
+            if [ -z "${!name}" ]; then
+              echo "Missing ${name} secret" >&2
+              exit 1
+            fi
+          done
+          keystore_path="$RUNNER_TEMP/nyasmsforward-node-release.keystore"
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
+          echo "ANDROID_KEYSTORE_FILE=$keystore_path" >> "$GITHUB_ENV"
+
+      - name: Build signed release APK
+        run: ./gradlew --no-daemon assembleRelease
+
+      - name: Verify APK signature and collect release files
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          apk=app/build/outputs/apk/release/app-release.apk
+          test -f "$apk" || { echo "Signed APK was not produced (is the keystore configured?)" >&2; exit 1; }
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)"
+          "$apksigner" verify --print-certs "$apk"
+          mkdir -p dist
+          out="dist/NyaSmsForward-Node_${VERSION}.apk"
+          cp "$apk" "$out"
+          (cd dist && sha256sum "$(basename "$out")" > "$(basename "$out").sha256")
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        with:
+          files: dist/*

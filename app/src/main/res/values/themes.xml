@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Only the window chrome; the UI itself is Compose. -->
+    <style name="Theme.NyaSmsForwardNode" parent="android:Theme.Material.Light.NoActionBar">
+        <item name="android:windowBackground">@color/window_light</item>
+    </style>
+</resources>
