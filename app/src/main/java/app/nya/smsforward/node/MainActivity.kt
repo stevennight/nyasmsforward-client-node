@@ -8,6 +8,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
 import app.nya.smsforward.node.node.NodeRuntime
+import app.nya.smsforward.node.service.NodeService
 import app.nya.smsforward.node.ui.NodeApp
 import app.nya.smsforward.node.ui.NyaTheme
 
@@ -20,6 +21,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         val runtime = NodeRuntime.get(this)
+        // The app is in the foreground now, which is when Android lets us start the send channel's service.
+        NodeService.sync(this)
         setContent {
             NyaTheme {
                 NodeApp(runtime, resumeTick)

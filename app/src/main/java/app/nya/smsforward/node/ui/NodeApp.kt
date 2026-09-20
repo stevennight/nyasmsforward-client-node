@@ -33,7 +33,7 @@ fun NodeApp(runtime: NodeRuntime, resumeTick: Int) {
             Screen.STATUS -> StatusScreen(state, runtime, resumeTick, onOpenSettings = { screen = Screen.SETTINGS })
             Screen.SETTINGS -> {
                 BackHandler { screen = Screen.STATUS }
-                SettingsScreen(state, runtime, onBack = { screen = Screen.STATUS })
+                SettingsScreen(state, runtime, resumeTick, onBack = { screen = Screen.STATUS })
             }
         }
         else -> PairScreen(state, runtime)

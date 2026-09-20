@@ -3,20 +3,21 @@ package app.nya.smsforward.node.data
 import android.content.Context
 import android.database.Cursor
 import android.database.sqlite.SQLiteDatabase
-import android.database.sqlite.SQLiteOpenHelper
 
-/** [SqlDb] on Android's SQLite. The schema itself is managed by [SqliteOutbox] through PRAGMA user_version. */
+/**
+ * [SqlDb] on Android's SQLite. The schema is managed by [Schema] through PRAGMA user_version, so this deliberately does
+ * NOT use SQLiteOpenHelper: the helper keeps its own idea of user_version and would bump it behind [Schema]'s back
+ * (leaving tables uncreated), or refuse to open a database whose version it does not know.
+ */
 class AndroidSqlDb(context: Context, name: String = "node.db") : SqlDb {
-    private val helper = object : SQLiteOpenHelper(context.applicationContext, name, null, 1) {
-        override fun onCreate(db: SQLiteDatabase) = Unit
-        override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
-        override fun onConfigure(db: SQLiteDatabase) {
-            db.enableWriteAheadLogging()
-        }
-    }
+    private val appContext = context.applicationContext
 
-    // Writes are serialized on the helper's own connection pool; a single writable handle keeps the code simple.
-    private val db: SQLiteDatabase get() = helper.writableDatabase
+    // One handle for the whole process; SQLite serializes writers, and WAL lets readers run alongside.
+    private val db: SQLiteDatabase by lazy {
+        val file = appContext.getDatabasePath(name)
+        file.parentFile?.mkdirs()
+        SQLiteDatabase.openDatabase(file.path, null, SQLiteDatabase.CREATE_IF_NECESSARY or SQLiteDatabase.ENABLE_WRITE_AHEAD_LOGGING)
+    }
 
     override fun execute(sql: String, args: List<Any?>): Int =
         db.compileStatement(sql).use { st ->

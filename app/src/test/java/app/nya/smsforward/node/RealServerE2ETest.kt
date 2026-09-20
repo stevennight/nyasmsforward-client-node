@@ -66,6 +66,14 @@ class RealServerE2ETest {
         return out.getValue("display").jsonPrimitive.content // "483 920", exactly as the console shows it
     }
 
+    /** First-run setup, or a login when another test already did it against the same server. */
+    private fun ensureAdmin() {
+        val (status, _) = admin("POST", "/api/auth/setup", """{"password":"e2e-test-password-123"}""")
+        if (status == 409) assertEquals(200, admin("POST", "/api/auth/login", """{"password":"e2e-test-password-123"}""").first)
+        else assertEquals(201, status)
+        assertTrue(cookie.isNotEmpty(), "a session must have started")
+    }
+
     @Test
     fun `receive, report, revoke, re-pair and catch up against the real server`() = runBlocking<Unit> {
         assumeTrue("set NYASMS_E2E_URL to run", baseUrl != null)
@@ -73,8 +81,7 @@ class RealServerE2ETest {
         val clock = { now }
 
         // --- the admin sets the server up and creates a pairing code, like in the web console ---
-        assertEquals(201, admin("POST", "/api/auth/setup", """{"password":"e2e-test-password-123"}""").first)
-        assertTrue(cookie.isNotEmpty(), "setup must start a session")
+        ensureAdmin()
 
         // --- the phone: settings, token store, queue, all real classes; only Android itself is missing ---
         val settings = MemorySettings()

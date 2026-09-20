@@ -2,6 +2,7 @@ package app.nya.smsforward.node.data
 
 import android.content.Context
 import app.nya.smsforward.node.node.NodeSettings
+import app.nya.smsforward.node.policy.SendPolicy
 
 /** [NodeSettings] on SharedPreferences. Nothing secret lives here: the token is in [KeystoreTokenStore]. */
 class PrefsSettings(context: Context) : NodeSettings {
@@ -30,4 +31,17 @@ class PrefsSettings(context: Context) : NodeSettings {
     override var lastError: String?
         get() = prefs.getString("last_error", null)
         set(value) = prefs.edit().putString("last_error", value).apply()
+
+    override var sendPolicy: SendPolicy
+        get() = SendPolicy.fromWire(prefs.getString("send_policy", null))
+        set(value) = prefs.edit().putString("send_policy", value.wire).apply()
+
+    override var sendLimitPerHour: Int
+        get() = prefs.getInt("send_limit_per_hour", DEFAULT_LIMIT).coerceIn(1, MAX_LIMIT)
+        set(value) = prefs.edit().putInt("send_limit_per_hour", value.coerceIn(1, MAX_LIMIT)).apply()
+
+    companion object {
+        const val DEFAULT_LIMIT = 10
+        const val MAX_LIMIT = 100
+    }
 }

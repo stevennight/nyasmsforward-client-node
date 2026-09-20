@@ -1,32 +1,9 @@
 package app.nya.smsforward.node.data
 
-/** [Outbox] on SQLite. The schema is versioned with PRAGMA user_version; add a step to [migrate] to change it. */
+/** [Outbox] on SQLite. The schema lives in [Schema]. */
 class SqliteOutbox(private val db: SqlDb) : Outbox {
     init {
-        migrate()
-    }
-
-    private fun migrate() = db.transaction {
-        if (db.version < 1) {
-            db.execute(
-                """CREATE TABLE outbox (
-                     id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                     dedupe_key  TEXT NOT NULL UNIQUE,
-                     peer        TEXT NOT NULL,
-                     body        TEXT NOT NULL,
-                     sim_slot    INTEGER,
-                     device_time INTEGER NOT NULL,
-                     created_at  INTEGER NOT NULL,
-                     state       TEXT NOT NULL DEFAULT 'pending',
-                     attempts    INTEGER NOT NULL DEFAULT 0,
-                     last_error  TEXT,
-                     finished_at INTEGER
-                   )""",
-            )
-            db.execute("CREATE INDEX idx_outbox_state ON outbox (state, id)")
-            db.execute("CREATE TABLE recent_peers (peer_key TEXT PRIMARY KEY, last_seen_at INTEGER NOT NULL)")
-            db.version = 1
-        }
+        Schema.migrate(db)
     }
 
     override fun enqueue(item: NewOutboxItem, now: Long): Boolean =

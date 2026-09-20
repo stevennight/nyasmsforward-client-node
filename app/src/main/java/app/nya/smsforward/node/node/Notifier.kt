@@ -1,6 +1,7 @@
 package app.nya.smsforward.node.node
 
 import android.Manifest
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -11,11 +12,14 @@ import android.os.Build
 import androidx.core.app.NotificationCompat
 import app.nya.smsforward.node.MainActivity
 import app.nya.smsforward.node.R
+import app.nya.smsforward.node.policy.SendPolicy
 
-/** The one notification this app posts in M1: "the token stopped working, pair again". */
+/** The notifications this app posts: "the token stopped working, pair again", and the send channel's ongoing one. */
 object Notifier {
     private const val CHANNEL = "pairing"
+    private const val CHANNEL_SERVICE = "send_channel"
     private const val ID_NEEDS_PAIRING = 1
+    const val ID_CHANNEL = 2
 
     fun needsPairing(context: Context, pending: Int) {
         if (!canPost(context)) return
@@ -38,6 +42,26 @@ object Notifier {
             .setAutoCancel(true)
             .build()
         manager.notify(ID_NEEDS_PAIRING, notification)
+    }
+
+    /** The ongoing notification of the foreground service that keeps the send channel connected. */
+    fun channelNotification(context: Context, policy: SendPolicy): Notification {
+        context.getSystemService(NotificationManager::class.java).createNotificationChannel(
+            NotificationChannel(CHANNEL_SERVICE, "下发通道", NotificationManager.IMPORTANCE_LOW),
+        )
+        val open = PendingIntent.getActivity(
+            context, 0, Intent(context, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
+        val what = if (policy == SendPolicy.ANY) "回复和新发" else "回复"
+        return NotificationCompat.Builder(context, CHANNEL_SERVICE)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setContentTitle("接收端在线")
+            .setContentText("平台可以让这台手机代发短信（$what）。在设置里可以随时关闭。")
+            .setContentIntent(open)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .build()
     }
 
     fun clearNeedsPairing(context: Context) {

@@ -26,6 +26,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -33,14 +34,16 @@ import app.nya.smsforward.node.node.NodeRuntime
 import app.nya.smsforward.node.node.PairResult
 import app.nya.smsforward.node.node.TestResult
 import app.nya.smsforward.node.node.UiState
+import app.nya.smsforward.node.service.NodeService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 /** Connection settings: change the server address, test the connection, or disconnect. */
 @Composable
-fun SettingsScreen(state: UiState, runtime: NodeRuntime, onBack: () -> Unit) {
+fun SettingsScreen(state: UiState, runtime: NodeRuntime, resumeTick: Int, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     var url by rememberSaveable { mutableStateOf(state.serverUrl.orEmpty()) }
     var urlError by remember { mutableStateOf<String?>(null) }
     var note by remember { mutableStateOf<Pair<Boolean, String>?>(null) } // (ok?, text)
@@ -107,6 +110,8 @@ fun SettingsScreen(state: UiState, runtime: NodeRuntime, onBack: () -> Unit) {
                 }
             }
 
+            SendSettingsCard(state, runtime, resumeTick)
+
             SectionCard("这台手机") {
                 Text(state.deviceName.orEmpty(), fontWeight = FontWeight.SemiBold)
                 Text("登录令牌：长期有效，不会自动过期，加密保存在本机。", style = MaterialTheme.typography.bodySmall)
@@ -135,6 +140,7 @@ fun SettingsScreen(state: UiState, runtime: NodeRuntime, onBack: () -> Unit) {
                     confirmDisconnect = false
                     scope.launch {
                         withContext(Dispatchers.IO) { runtime.pairing.disconnect() }
+                        NodeService.sync(context) // no token any more: the send channel stops
                         runtime.refresh()
                     }
                 }) { Text("断开", color = MaterialTheme.colorScheme.error) }

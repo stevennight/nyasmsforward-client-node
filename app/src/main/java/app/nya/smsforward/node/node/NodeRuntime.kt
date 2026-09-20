@@ -5,20 +5,33 @@ import android.os.Build
 import app.nya.smsforward.node.BuildConfig
 import app.nya.smsforward.node.data.AndroidSqlDb
 import app.nya.smsforward.node.data.KeystoreTokenStore
+import app.nya.smsforward.node.data.LedgerEntry
 import app.nya.smsforward.node.data.Outbox
 import app.nya.smsforward.node.data.PrefsSettings
 import app.nya.smsforward.node.data.RecentItem
+import app.nya.smsforward.node.data.SendLedger
 import app.nya.smsforward.node.data.SqliteOutbox
+import app.nya.smsforward.node.data.SqliteSendLedger
+import app.nya.smsforward.node.net.ChannelState
 import app.nya.smsforward.node.net.OkHttpNodeApi
+import app.nya.smsforward.node.policy.SendPolicy
+import app.nya.smsforward.node.send.AndroidSmsSender
+import app.nya.smsforward.node.send.SendCoordinator
+import app.nya.smsforward.node.send.SendGate
+import app.nya.smsforward.node.send.SendStatusTracker
+import app.nya.smsforward.node.service.NodeService
+import app.nya.smsforward.node.service.SendChannel
 import app.nya.smsforward.node.sms.SimSlots
 import app.nya.smsforward.node.work.UploadScheduler
 import app.nya.smsforward.node.work.Uploader
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 enum class ConnectionKind {
@@ -39,6 +52,10 @@ data class UiState(
     val lastUploadAt: Long = 0,
     val lastError: String? = null,
     val recent: List<RecentItem> = emptyList(),
+    val sendPolicy: SendPolicy = SendPolicy.OFF,
+    val sendLimitPerHour: Int = 10,
+    val channel: ChannelState = ChannelState.Idle,
+    val sendTasks: List<LedgerEntry> = emptyList(),
 )
 
 /**
@@ -52,7 +69,10 @@ class NodeRuntime private constructor(private val app: Context) {
     val tokens = KeystoreTokenStore(app)
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
-    val outbox: Outbox by lazy { SqliteOutbox(AndroidSqlDb(app)) }
+    // One database handle for everything that lives in node.db.
+    private val sqlDb by lazy { AndroidSqlDb(app) }
+    val outbox: Outbox by lazy { SqliteOutbox(sqlDb) }
+    val ledger: SendLedger by lazy { SqliteSendLedger(sqlDb) }
     private val api by lazy { OkHttpNodeApi() }
     val incoming by lazy { IncomingHandler(outbox, settings, System::currentTimeMillis) }
     val uploader by lazy { Uploader(outbox, api, settings, tokens, System::currentTimeMillis) }
@@ -65,8 +85,41 @@ class NodeRuntime private constructor(private val app: Context) {
             onPaired = {
                 Notifier.clearNeedsPairing(app)
                 UploadScheduler.enqueue(app)
+                NodeService.sync(app) // a re-paired phone with sending switched on reconnects its channel
             },
         )
+    }
+
+    // --- sending (M3) ---
+    private val _channelState = MutableStateFlow<ChannelState>(ChannelState.Idle)
+    val sender by lazy { AndroidSmsSender(app) }
+    private val tracker = SendStatusTracker()
+    val coordinator: SendCoordinator by lazy {
+        SendCoordinator(
+            SendGate(settings, outbox, ledger, System::currentTimeMillis), ledger, sender, tracker, System::currentTimeMillis,
+            emit = { channel.emit(it) },
+        )
+    }
+    val channel: SendChannel by lazy {
+        SendChannel(app, scope, settings, tokens, sender, { coordinator }, _channelState, BuildConfig.VERSION_NAME)
+    }
+
+    /**
+     * Changes what the platform may make this phone send. Turning it off tells the server first (so the console shows
+     * "off" instead of a phone that merely vanished) and then stops the foreground service.
+     */
+    fun applySendPolicy(policy: SendPolicy) {
+        settings.sendPolicy = policy
+        channel.sendHello()
+        scope.launch {
+            if (policy == SendPolicy.OFF) delay(1_500) // let the hello go out before the connection closes
+            NodeService.sync(app)
+            refresh()
+        }
+    }
+
+    fun applySendLimit(perHour: Int) {
+        settings.sendLimitPerHour = perHour
     }
 
     private val _state = MutableStateFlow(UiState())
@@ -88,6 +141,10 @@ class NodeRuntime private constructor(private val app: Context) {
                 lastUploadAt = settings.lastUploadAt,
                 lastError = settings.lastError,
                 recent = outbox.recent(RECENT_COUNT),
+                sendPolicy = settings.sendPolicy,
+                sendLimitPerHour = settings.sendLimitPerHour,
+                channel = _channelState.value,
+                sendTasks = ledger.recent(5),
             )
         }
         _state.value = next

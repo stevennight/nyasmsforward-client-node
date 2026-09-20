@@ -86,6 +86,8 @@ fun StatusScreen(state: UiState, runtime: NodeRuntime, resumeTick: Int, onOpenSe
                 }
             }
 
+            SendStatusCard(state, onOpenSettings)
+
             SectionCard("权限") {
                 for (p in permissions()) {
                     val ok = checked[p.permission] == true

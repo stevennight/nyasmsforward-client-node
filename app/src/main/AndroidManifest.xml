@@ -14,9 +14,17 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!--
-      Later milestones add what they use, each requested only when the user turns the feature on:
-      SEND_SMS (M3, reply / send tasks), READ_SMS (M4, opt-in "sync sent messages" / history backfill).
+      Sending (docs/协议.md §6.2, §7): only requested when the user switches sending on in the settings. SEND_SMS sends the
+      replies and messages the platform asks for; READ_PHONE_STATE (above) maps a SIM slot to the subscription that sends.
     -->
+    <uses-permission android:name="android.permission.SEND_SMS" />
+
+    <!-- The send channel is a foreground service, which only exists while sending is switched on. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+
+    <!-- Later milestone: READ_SMS (M4, opt-in "sync sent messages" / history backfill), requested only when turned on. -->
 
     <!-- The receiver phone may be a tablet with a SIM or a phone without telephony hardware in tests. -->
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
@@ -53,6 +61,30 @@
             android:permission="android.permission.BROADCAST_SMS">
             <intent-filter android:priority="999">
                 <action android:name="android.provider.Telephony.SMS_RECEIVED" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+          Results of the SMS this phone sent for the server (sent per part, delivery reports). Not exported: only the
+          PendingIntents handed to the system reach it, so no other app can forge a receipt.
+        -->
+        <receiver android:name=".send.SendStatusReceiver" android:exported="false" />
+
+        <!-- The send channel: a persistent WebSocket to the server, running only while sending is switched on. -->
+        <service
+            android:name=".service.NodeService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Keeps a WebSocket to the user's own server open so it can ask this phone to send SMS replies" />
+        </service>
+
+        <!-- Brings the send channel back after a reboot or an app update. -->
+        <receiver android:name=".service.BootReceiver" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
     </application>

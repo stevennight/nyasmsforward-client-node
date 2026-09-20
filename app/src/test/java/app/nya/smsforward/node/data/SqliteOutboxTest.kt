@@ -135,7 +135,7 @@ class SqliteOutboxTest {
             box.touchPeer("p", 1)
         }
         JdbcSqlDb(url).use { db ->
-            assertEquals(1, db.version)
+            assertEquals(Schema.LATEST, db.version)
             val box = SqliteOutbox(db) // opening again must not fail with "table already exists"
             assertEquals(1, box.pendingCount())
             assertEquals(setOf("p"), box.recentPeers(0))

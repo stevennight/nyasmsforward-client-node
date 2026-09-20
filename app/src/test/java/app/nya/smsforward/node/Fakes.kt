@@ -12,6 +12,7 @@ import app.nya.smsforward.node.net.NodeApi
 import app.nya.smsforward.node.net.UploadMessage
 import app.nya.smsforward.node.net.UploadOutcome
 import app.nya.smsforward.node.node.NodeSettings
+import app.nya.smsforward.node.policy.SendPolicy
 import app.nya.smsforward.node.node.TokenStore
 
 class MemorySettings : NodeSettings {
@@ -21,6 +22,8 @@ class MemorySettings : NodeSettings {
     override var needsPairing = false
     override var lastUploadAt = 0L
     override var lastError: String? = null
+    override var sendPolicy = SendPolicy.OFF
+    override var sendLimitPerHour = 10
 }
 
 class MemoryTokens(var token: String? = null) : TokenStore {

@@ -1,5 +1,7 @@
 package app.nya.smsforward.node.node
 
+import app.nya.smsforward.node.policy.SendPolicy
+
 /** Non-secret state of this phone's connection to the server. The token itself lives in [TokenStore]. */
 interface NodeSettings {
     /** Normalized server address, e.g. `https://sms.example.com`. Survives sign-out, so re-pairing is one field shorter. */
@@ -14,6 +16,15 @@ interface NodeSettings {
 
     var lastUploadAt: Long
     var lastError: String?
+
+    /**
+     * What the platform may make this phone send (docs/协议.md §7). Set only here on the phone, reported to the server, and
+     * enforced locally whatever the server says. Off by default: receiving works without ever enabling this.
+     */
+    var sendPolicy: SendPolicy
+
+    /** At most this many send tasks start per rolling hour; the platform cannot raise it. */
+    var sendLimitPerHour: Int
 }
 
 /** Where the long-lived device token is kept (Android Keystore-encrypted in production). */
@@ -24,3 +35,9 @@ interface TokenStore {
 }
 
 fun NodeSettings.isPaired(tokens: TokenStore): Boolean = serverUrl != null && deviceId != null && tokens.read() != null
+
+/**
+ * Whether the send channel should be running: paired, the token still good, and sending switched on. Receiving and
+ * reporting SMS need none of this, so a phone whose policy is "off" never runs the foreground service.
+ */
+fun NodeSettings.channelWanted(tokens: TokenStore): Boolean = isPaired(tokens) && !needsPairing && sendPolicy != SendPolicy.OFF
