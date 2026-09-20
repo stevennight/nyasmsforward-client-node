@@ -27,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -35,11 +36,18 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import app.nya.smsforward.node.BuildConfig
 import app.nya.smsforward.node.data.OutboxState
 import app.nya.smsforward.node.data.RecentItem
 import app.nya.smsforward.node.node.NodeRuntime
 import app.nya.smsforward.node.node.UiState
+import app.nya.smsforward.node.update.InstallResult
+import app.nya.smsforward.node.update.NodeUpdater
+import app.nya.smsforward.node.update.UpdateCheck
 import app.nya.smsforward.node.work.UploadScheduler
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private data class Perm(val permission: String, val title: String, val hint: String, val required: Boolean)
 
@@ -57,6 +65,7 @@ private fun granted(context: Context, permission: String) =
 @Composable
 fun StatusScreen(state: UiState, runtime: NodeRuntime, resumeTick: Int, onOpenSettings: () -> Unit) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     // resumeTick changes whenever the app returns to the foreground, e.g. from the system permission screen.
     var checked by remember(resumeTick) { mutableStateOf(permissions().associate { it.permission to granted(context, it.permission) }) }
     val request = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
@@ -64,6 +73,17 @@ fun StatusScreen(state: UiState, runtime: NodeRuntime, resumeTick: Int, onOpenSe
     }
     val missing = permissions().filter { checked[it.permission] != true }
     val smsGranted = checked[Manifest.permission.RECEIVE_SMS] == true
+    var update by remember { mutableStateOf<UpdateCheck>(UpdateCheck.Idle) }
+    var installNote by remember { mutableStateOf<String?>(null) }
+
+    fun checkForUpdates() {
+        if (update is UpdateCheck.Checking) return
+        installNote = null
+        update = UpdateCheck.Checking
+        scope.launch {
+            update = withContext(Dispatchers.IO) { NodeUpdater.check(BuildConfig.VERSION_NAME) }
+        }
+    }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
@@ -87,6 +107,56 @@ fun StatusScreen(state: UiState, runtime: NodeRuntime, resumeTick: Int, onOpenSe
             }
 
             SendStatusCard(state, onOpenSettings)
+
+            SectionCard("应用更新") {
+                when (val result = update) {
+                    UpdateCheck.Idle -> Text("可手动检查 GitHub Release 中的最新接收端 APK。")
+                    UpdateCheck.Checking -> Text("正在检查 NyaSmsForward 接收端更新…")
+                    is UpdateCheck.UpToDate -> Text("当前已是最新版本 v${result.currentVersion}")
+                    is UpdateCheck.Failed -> Text(result.message, color = MaterialTheme.colorScheme.error)
+                    is UpdateCheck.Available -> {
+                        Text("发现新版本 v${result.update.version}", fontWeight = FontWeight.SemiBold)
+                        if (result.update.releaseNotes.isNotBlank()) {
+                            Text(
+                                result.update.releaseNotes,
+                                maxLines = 5,
+                                overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(
+                                enabled = installNote == null,
+                                onClick = {
+                                    installNote = "正在下载并校验 APK…"
+                                    scope.launch {
+                                        val install = withContext(Dispatchers.IO) {
+                                            NodeUpdater.downloadAndInstall(context, result.update)
+                                        }
+                                        installNote = when (install) {
+                                            InstallResult.Started -> "APK 已校验，已打开系统安装确认。"
+                                            InstallResult.PermissionRequired -> "请允许本应用安装未知来源应用，然后再次点击安装。"
+                                            is InstallResult.Failed -> install.message
+                                        }
+                                    }
+                                },
+                            ) { Text("下载并安装") }
+                            OutlinedButton(onClick = { checkForUpdates() }) { Text("重新检查") }
+                        }
+                    }
+                }
+                installNote?.let {
+                    Text(
+                        it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (it.contains("失败") || it.contains("允许")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (update !is UpdateCheck.Available && update !is UpdateCheck.Checking) {
+                    OutlinedButton(onClick = { checkForUpdates() }) { Text("检查更新") }
+                }
+            }
 
             SectionCard("权限") {
                 for (p in permissions()) {

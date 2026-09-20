@@ -32,6 +32,9 @@
     <!-- Lets the settings page show the system "do not optimise battery for this app" dialog directly. -->
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
 
+    <!-- Lets the user approve an APK downloaded from the signed GitHub Release. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!--
       READ_SMS (M4): only for the opt-in "sync sent messages" and history backfill, requested at the moment the user
       switches that on. Nothing reads the SMS database while it is off.
@@ -62,6 +65,16 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
 
         <!--
           Only the system may deliver SMS_RECEIVED: BROADCAST_SMS is a signature-level permission that regular apps
