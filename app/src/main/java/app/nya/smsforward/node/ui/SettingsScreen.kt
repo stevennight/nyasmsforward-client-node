@@ -112,6 +112,8 @@ fun SettingsScreen(state: UiState, runtime: NodeRuntime, resumeTick: Int, onBack
 
             SendSettingsCard(state, runtime, resumeTick)
 
+            SentSyncCard(state, runtime, resumeTick)
+
             SectionCard("这台手机") {
                 Text(state.deviceName.orEmpty(), fontWeight = FontWeight.SemiBold)
                 Text("登录令牌：长期有效，不会自动过期，加密保存在本机。", style = MaterialTheme.typography.bodySmall)

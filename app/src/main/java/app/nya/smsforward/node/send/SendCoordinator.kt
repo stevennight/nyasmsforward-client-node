@@ -77,7 +77,7 @@ class SendCoordinator(
         }
 
         // Written first: from here on this task counts against the limit and can never be started again.
-        if (!ledger.begin(task.taskId, recipient, task.mode.wire, now)) return null
+        if (!ledger.begin(task.taskId, recipient, task.mode.wire, now, BodyHash.of(task.body))) return null
         return try {
             sender.send(task, sim)
             null // the result comes back through onPartSent

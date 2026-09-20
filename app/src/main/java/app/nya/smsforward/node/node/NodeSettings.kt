@@ -25,6 +25,21 @@ interface NodeSettings {
 
     /** At most this many send tasks start per rolling hour; the platform cannot raise it. */
     var sendLimitPerHour: Int
+
+    /**
+     * Also report the SMS the user sends from the phone's own SMS app (docs/协议.md §5.1). Off by default: it needs READ_SMS,
+     * which is only requested when this is switched on.
+     */
+    var syncSent: Boolean
+
+    /** Days of existing history to report once when sync is on (0, 7 or 30). Reported quietly: no alerts, already read. */
+    var backfillDays: Int
+
+    /** How much history has been reported already (days), so switching on again does not repeat it. */
+    var backfilledDays: Int
+
+    /** Highest sent-box row id already handled; -1 until sync is switched on and the current end of the box is noted. */
+    var sentCursor: Long
 }
 
 /** Where the long-lived device token is kept (Android Keystore-encrypted in production). */

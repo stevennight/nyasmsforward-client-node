@@ -173,3 +173,61 @@ fun SendStatusCard(state: UiState, onOpenSettings: () -> Unit) {
         OutlinedButton(onClick = onOpenSettings) { Text("下发设置") }
     }
 }
+
+private val HISTORY_CHOICES = listOf(0 to "不回补", 7 to "最近 7 天", 30 to "最近 30 天")
+
+/**
+ * Optional: report what the user sends from the phone's own SMS app, and read old history once. Off by default, and
+ * READ_SMS is only asked for at the moment it is switched on.
+ */
+@Composable
+fun SentSyncCard(state: UiState, runtime: NodeRuntime, resumeTick: Int) {
+    val context = LocalContext.current
+    var canRead by remember(resumeTick) { mutableStateOf(granted(context, Manifest.permission.READ_SMS)) }
+    val request = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        canRead = ok
+        // Without the permission there is nothing to read: keep the switch off instead of pretending.
+        if (!ok) runtime.applySyncSent(false)
+    }
+    val on = runtime.settings.syncSent
+    val days = runtime.settings.backfillDays
+
+    SectionCard("同步手机上发出的短信（可选）") {
+        Text(
+            "在这台手机自带短信 App 里手动发出的短信，默认不会出现在平台上。开启后读取手机的短信数据库把它们补上，" +
+                "会话就完整了（标注“手机上发出”，不弹通知、自动已读）。需要“读取短信”权限，只在你开启时才申请。",
+            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("同步发出的短信", fontWeight = FontWeight.Medium)
+            androidx.compose.material3.Switch(
+                checked = on && canRead,
+                onCheckedChange = { want ->
+                    if (want) {
+                        runtime.applySyncSent(true)
+                        if (!canRead) request.launch(Manifest.permission.READ_SMS)
+                    } else {
+                        runtime.applySyncSent(false)
+                    }
+                },
+            )
+        }
+        if (on) {
+            Text("回补历史（只做一次，标为已读、不弹通知）", fontWeight = FontWeight.Medium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for ((n, label) in HISTORY_CHOICES) {
+                    if (n == days) {
+                        Button(onClick = {}) { Text(label) }
+                    } else {
+                        OutlinedButton(onClick = { runtime.applyBackfillDays(n) }) { Text(label) }
+                    }
+                }
+            }
+            Text(
+                "经平台发出的短信不会重复上报。手机进程被系统结束时，最多 15 分钟内补上；开着本 App 时几秒内就会同步。",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (!canRead) Warning("没有“读取短信”权限，无法同步。")
+        }
+    }
+}

@@ -9,7 +9,7 @@ package app.nya.smsforward.node.data
  * schema add statements and raise [LATEST]; never edit what has shipped.
  */
 object Schema {
-    const val LATEST = 2
+    const val LATEST = 3
 
     fun migrate(db: SqlDb) = db.transaction {
         if (db.version < LATEST) {
@@ -46,7 +46,18 @@ object Schema {
                    )""",
             )
             db.execute("CREATE INDEX IF NOT EXISTS idx_send_started ON send_tasks (started_at)")
+
+            // Version 3 (M4): sent messages and history backfill share the outbox, and the ledger remembers a hash of what a
+            // task sent so the sent box does not report it a second time. ALTER has no IF NOT EXISTS, so look first.
+            addColumnIfMissing(db, "outbox", "direction", "TEXT NOT NULL DEFAULT 'in'")
+            addColumnIfMissing(db, "outbox", "backfill", "INTEGER NOT NULL DEFAULT 0")
+            addColumnIfMissing(db, "send_tasks", "body_hash", "TEXT")
             db.version = LATEST
         }
+    }
+
+    private fun addColumnIfMissing(db: SqlDb, table: String, column: String, definition: String) {
+        val columns = db.query("PRAGMA table_info($table)") { it.string(1) }
+        if (column !in columns) db.execute("ALTER TABLE $table ADD COLUMN $column $definition")
     }
 }

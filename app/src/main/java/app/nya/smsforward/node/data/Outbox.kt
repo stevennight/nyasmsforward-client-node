@@ -7,6 +7,10 @@ data class NewOutboxItem(
     val body: String,
     val simSlot: Int?,
     val deviceTime: Long,
+    /** "in" for a received SMS, "out" for one the user sent from the phone's own SMS app (docs/协议.md §5.1). */
+    val direction: String = "in",
+    /** History read from the SMS database: reported quietly (no alert, already read). */
+    val backfill: Boolean = false,
 )
 
 data class OutboxItem(
@@ -17,6 +21,8 @@ data class OutboxItem(
     val simSlot: Int?,
     val deviceTime: Long,
     val attempts: Int,
+    val direction: String = "in",
+    val backfill: Boolean = false,
 )
 
 enum class OutboxState(val wire: String) {

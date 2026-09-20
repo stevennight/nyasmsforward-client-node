@@ -21,7 +21,10 @@ import app.nya.smsforward.node.send.SendGate
 import app.nya.smsforward.node.send.SendStatusTracker
 import app.nya.smsforward.node.service.NodeService
 import app.nya.smsforward.node.service.SendChannel
+import app.nya.smsforward.node.sms.AndroidSmsBox
+import app.nya.smsforward.node.sms.SentSync
 import app.nya.smsforward.node.sms.SimSlots
+import app.nya.smsforward.node.work.SentSyncScheduler
 import app.nya.smsforward.node.work.UploadScheduler
 import app.nya.smsforward.node.work.Uploader
 import kotlinx.coroutines.CoroutineScope
@@ -120,6 +123,29 @@ class NodeRuntime private constructor(private val app: Context) {
 
     fun applySendLimit(perHour: Int) {
         settings.sendLimitPerHour = perHour
+    }
+
+    // --- sent messages and history (M4) ---
+    val smsBox by lazy { AndroidSmsBox(app) { SimSlots.activeSims(app) } }
+    val sentSync by lazy { SentSync(settings, smsBox, outbox, ledger, System::currentTimeMillis) }
+
+    /** Switches "sync sent messages" on or off. Turning it on starts a fresh cursor at the current end of the sent box. */
+    fun applySyncSent(enabled: Boolean) {
+        settings.syncSent = enabled
+        if (enabled) {
+            settings.sentCursor = -1 // noted by the first pass: only messages sent from now on
+            SentSyncScheduler.enable(app)
+        } else {
+            SentSyncScheduler.disable(app)
+        }
+        channel.sendHello()
+    }
+
+    /** History to report once when sync is on: 0 (none), 7 or 30 days. */
+    fun applyBackfillDays(days: Int) {
+        settings.backfillDays = days
+        if (settings.syncSent) SentSyncScheduler.requestSoon(app)
+        channel.sendHello()
     }
 
     private val _state = MutableStateFlow(UiState())

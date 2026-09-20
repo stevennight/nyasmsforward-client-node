@@ -24,7 +24,11 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
-    <!-- Later milestone: READ_SMS (M4, opt-in "sync sent messages" / history backfill), requested only when turned on. -->
+    <!--
+      READ_SMS (M4): only for the opt-in "sync sent messages" and history backfill, requested at the moment the user
+      switches that on. Nothing reads the SMS database while it is off.
+    -->
+    <uses-permission android:name="android.permission.READ_SMS" />
 
     <!-- The receiver phone may be a tablet with a SIM or a phone without telephony hardware in tests. -->
     <uses-feature android:name="android.hardware.telephony" android:required="false" />

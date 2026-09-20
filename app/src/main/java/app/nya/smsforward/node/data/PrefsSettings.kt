@@ -40,6 +40,22 @@ class PrefsSettings(context: Context) : NodeSettings {
         get() = prefs.getInt("send_limit_per_hour", DEFAULT_LIMIT).coerceIn(1, MAX_LIMIT)
         set(value) = prefs.edit().putInt("send_limit_per_hour", value.coerceIn(1, MAX_LIMIT)).apply()
 
+    override var syncSent: Boolean
+        get() = prefs.getBoolean("sync_sent", false)
+        set(value) = prefs.edit().putBoolean("sync_sent", value).apply()
+
+    override var backfillDays: Int
+        get() = prefs.getInt("backfill_days", 0)
+        set(value) = prefs.edit().putInt("backfill_days", value).apply()
+
+    override var backfilledDays: Int
+        get() = prefs.getInt("backfilled_days", 0)
+        set(value) = prefs.edit().putInt("backfilled_days", value).apply()
+
+    override var sentCursor: Long
+        get() = prefs.getLong("sent_cursor", -1L)
+        set(value) = prefs.edit().putLong("sent_cursor", value).apply()
+
     companion object {
         const val DEFAULT_LIMIT = 10
         const val MAX_LIMIT = 100

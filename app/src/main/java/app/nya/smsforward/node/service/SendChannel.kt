@@ -118,6 +118,8 @@ class SendChannel(
         appVersion = appVersion,
         battery = battery(),
         sendPolicy = settings.sendPolicy.wire,
+        syncSent = settings.syncSent,
+        backfillDays = settings.backfillDays,
         sims = sender.activeSims(),
     )
 

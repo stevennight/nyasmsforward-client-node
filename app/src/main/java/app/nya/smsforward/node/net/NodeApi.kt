@@ -34,7 +34,7 @@ data class MeResponse(
     val serverTime: Long? = null,
 )
 
-/** One message in an upload batch (docs/协议.md §5). v1 phones only report incoming messages. */
+/** One message in an upload batch (docs/协议.md §5). [direction] is "in", or "out" for what the user sent from the phone. */
 @Serializable
 data class UploadMessage(
     val dedupeKey: String,

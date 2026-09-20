@@ -32,8 +32,14 @@ data class LedgerEntry(
 interface SendLedger {
     fun find(taskId: String): LedgerEntry?
 
-    /** Records that sending starts now. Returns false if the task is already known (then nothing must be sent). */
-    fun begin(taskId: String, recipient: String, mode: String, now: Long): Boolean
+    /**
+     * Records that sending starts now. [bodyHash] (SHA-256 of the text) lets the sent-box sync recognise this very SMS later
+     * without the ledger keeping message text. Returns false if the task is already known (then nothing must be sent).
+     */
+    fun begin(taskId: String, recipient: String, mode: String, now: Long, bodyHash: String = ""): Boolean
+
+    /** Whether a task started sending [bodyHash] to [recipient] within [windowMs] of [at]: the SMS is already on the platform. */
+    fun sentByTask(recipient: String, bodyHash: String, at: Long, windowMs: Long): Boolean
 
     /** Records a task refused before sending. Returns false if the task is already known. */
     fun reject(taskId: String, recipient: String, mode: String, error: String, now: Long): Boolean
@@ -66,11 +72,18 @@ class SqliteSendLedger(private val db: SqlDb) : SendLedger {
     override fun find(taskId: String): LedgerEntry? =
         db.query("SELECT $COLS FROM send_tasks WHERE task_id = ?", listOf(taskId), ::entry).firstOrNull()
 
-    override fun begin(taskId: String, recipient: String, mode: String, now: Long): Boolean =
+    override fun begin(taskId: String, recipient: String, mode: String, now: Long, bodyHash: String): Boolean =
         db.execute(
-            "INSERT OR IGNORE INTO send_tasks (task_id, recipient, mode, state, started_at, created_at, updated_at) VALUES (?, ?, ?, 'sending', ?, ?, ?)",
-            listOf(taskId, recipient, mode, now, now, now),
+            "INSERT OR IGNORE INTO send_tasks (task_id, recipient, mode, state, started_at, created_at, updated_at, body_hash) VALUES (?, ?, ?, 'sending', ?, ?, ?, ?)",
+            listOf(taskId, recipient, mode, now, now, now, bodyHash.ifEmpty { null }),
         ) > 0
+
+    override fun sentByTask(recipient: String, bodyHash: String, at: Long, windowMs: Long): Boolean =
+        bodyHash.isNotEmpty() &&
+            db.query(
+                "SELECT COUNT(*) FROM send_tasks WHERE recipient = ? AND body_hash = ? AND state != 'failed' AND started_at BETWEEN ? AND ?",
+                listOf(recipient, bodyHash, at - windowMs, at + windowMs),
+            ) { it.long(0) }.first() > 0
 
     override fun reject(taskId: String, recipient: String, mode: String, error: String, now: Long): Boolean =
         db.execute(
