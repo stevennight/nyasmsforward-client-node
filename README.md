@@ -33,7 +33,7 @@ NyaSmsForward 由三个独立仓库组成，互不依赖代码，只通过服务
 | 允许新发 | 除回复外，可向任意号码发短信 |
 
 - **通道**：开启后运行前台服务（`specialUse`，常驻通知），保持到服务器的 WebSocket，指数退避无限重连（1 秒到 5 分钟）；只有 `401` + `token_revoked` 等（或关闭码 `4401`）才判定令牌失效，网络故障 / 5xx / 反代裸 401 都保留令牌。开机和升级后自动恢复。
-- **手机端强制执行**（`SendGate`）：策略、任务过期、最近来信号码、**每小时上限（默认 10，手机本地计数）**、仅限真实号码（字母 ID 发件人永远不可发）。不满足则回 `failed` + 原因（`policy_denied` / `recipient_not_recent` / `rate_limited` / `expired` / `no_permission` / `sim_unavailable`）。
+- **手机端强制执行**（`SendGate`）：策略、任务过期、最近来信号码、可选收件人白名单、**每小时上限（默认 10，手机本地计数）**、仅限真实号码（字母 ID 发件人永远不可发）。不满足则回 `failed` + 原因（`policy_denied` / `recipient_not_recent` / `recipient_not_allowed` / `rate_limited` / `expired` / `no_permission` / `sim_unavailable`）。
 - **选卡**：按任务里的卡槽号换算成当前的订阅 ID；该槽位没有卡就回 `sim_unavailable`，**不会**改用另一张卡（否则对方会看到陌生号码）。
 - **不重发**：每个 taskId 只处理一次（本地台账 `send_tasks`），服务器重连后重复下发同一任务，只会得到上次的回执；发送中进程被杀的任务按失败上报，宁可误报失败也不重复发送。
 - **回执**：`sent`（每一段都交给基站）→ `delivered`（送达报告，运营商不发就停在 sent）/ `failed`。每次连上后，最近 24 小时的回执会重发一遍，服务器对重复回执无副作用，所以断线时丢的回执最终会补上。

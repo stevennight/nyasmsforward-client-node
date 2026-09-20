@@ -46,6 +46,11 @@ class SendGate(
             }
         }
 
+        val recipientKey = PeerKey.normalize(task.to)
+        if (settings.allowedRecipients.isNotEmpty() && recipientKey !in settings.allowedRecipients) {
+            return GateDecision.Reject(SendError.RECIPIENT_NOT_ALLOWED)
+        }
+
         if (ledger.startedSince(now - HOUR_MS) >= settings.sendLimitPerHour) return GateDecision.Reject(SendError.RATE_LIMITED)
         return GateDecision.Allow
     }

@@ -40,6 +40,10 @@ class PrefsSettings(context: Context) : NodeSettings {
         get() = prefs.getInt("send_limit_per_hour", DEFAULT_LIMIT).coerceIn(1, MAX_LIMIT)
         set(value) = prefs.edit().putInt("send_limit_per_hour", value.coerceIn(1, MAX_LIMIT)).apply()
 
+    override var allowedRecipients: Set<String>
+        get() = prefs.getStringSet("allowed_recipients", emptySet())?.toSet() ?: emptySet()
+        set(value) = prefs.edit().putStringSet("allowed_recipients", value.toSet()).apply()
+
     override var syncSent: Boolean
         get() = prefs.getBoolean("sync_sent", false)
         set(value) = prefs.edit().putBoolean("sync_sent", value).apply()

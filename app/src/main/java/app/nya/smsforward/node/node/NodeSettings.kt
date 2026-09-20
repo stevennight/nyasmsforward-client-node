@@ -26,6 +26,9 @@ interface NodeSettings {
     /** At most this many send tasks start per rolling hour; the platform cannot raise it. */
     var sendLimitPerHour: Int
 
+    /** Optional local allowlist. Empty means no extra recipient restriction. Values are normalized phone numbers. */
+    var allowedRecipients: Set<String>
+
     /**
      * Also report the SMS the user sends from the phone's own SMS app (docs/协议.md §5.1). Off by default: it needs READ_SMS,
      * which is only requested when this is switched on.

@@ -57,6 +57,7 @@ data class UiState(
     val recent: List<RecentItem> = emptyList(),
     val sendPolicy: SendPolicy = SendPolicy.OFF,
     val sendLimitPerHour: Int = 10,
+    val allowedRecipients: Set<String> = emptySet(),
     val channel: ChannelState = ChannelState.Idle,
     val sendTasks: List<LedgerEntry> = emptyList(),
     val syncSent: Boolean = false,
@@ -128,6 +129,11 @@ class NodeRuntime private constructor(private val app: Context) {
         scope.launch { refresh() }
     }
 
+    fun applyAllowedRecipients(recipients: Set<String>) {
+        settings.allowedRecipients = recipients
+        scope.launch { refresh() }
+    }
+
     // --- sent messages and history (M4) ---
     val smsBox by lazy { AndroidSmsBox(app) { SimSlots.activeSims(app) } }
     val sentSync by lazy { SentSync(settings, smsBox, outbox, ledger, System::currentTimeMillis) }
@@ -174,6 +180,7 @@ class NodeRuntime private constructor(private val app: Context) {
                 recent = outbox.recent(RECENT_COUNT),
                 sendPolicy = settings.sendPolicy,
                 sendLimitPerHour = settings.sendLimitPerHour,
+                allowedRecipients = settings.allowedRecipients,
                 channel = _channelState.value,
                 sendTasks = ledger.recent(5),
                 syncSent = settings.syncSent,

@@ -38,6 +38,7 @@ import app.nya.smsforward.node.net.ChannelState
 import app.nya.smsforward.node.node.NodeRuntime
 import app.nya.smsforward.node.node.UiState
 import app.nya.smsforward.node.policy.SendPolicy
+import app.nya.smsforward.node.sms.PeerKey
 
 private val LIMITS = listOf(5, 10, 20, 50)
 
@@ -96,6 +97,8 @@ fun SendSettingsCard(state: UiState, runtime: NodeRuntime, resumeTick: Int) {
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
 
+            AllowlistEditor(state, runtime)
+
             if (!canSend) Warning("没有“发送短信”权限，下发任务都会失败（no_permission）。")
             if (!canReadSims) Warning("没有“读取 SIM 信息”权限，无法按卡槽选择用哪张卡发送，指定了卡槽的任务会失败。")
             if (!canSend || !canReadSims) {
@@ -106,6 +109,34 @@ fun SendSettingsCard(state: UiState, runtime: NodeRuntime, resumeTick: Int) {
             BatteryHint(resumeTick)
         }
     }
+}
+
+@Composable
+private fun AllowlistEditor(state: UiState, runtime: NodeRuntime) {
+    var text by remember(state.allowedRecipients) { mutableStateOf(state.allowedRecipients.joinToString(", ")) }
+    var note by remember { mutableStateOf<String?>(null) }
+
+    Text("收件人白名单（可选）", fontWeight = FontWeight.Medium)
+    Text(
+        "填写后只允许向这些号码发送；回复模式仍会额外检查最近来信。留空表示不启用白名单。",
+        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    androidx.compose.material3.OutlinedTextField(
+        value = text,
+        onValueChange = { text = it; note = null },
+        modifier = Modifier.fillMaxWidth(),
+        minLines = 2,
+        maxLines = 4,
+        placeholder = { Text("13800000000, 13900000000") },
+        supportingText = { Text(note ?: "支持逗号、空格或换行分隔，最多 100 个号码") },
+    )
+    OutlinedButton(onClick = {
+        val parts = text.split(',', '，', ' ', '\n', '\r', '\t').filter { it.isNotBlank() }
+        val valid = parts.map { PeerKey.normalize(it) }.filter { PeerKey.isReplyable(it) }.distinct().take(100).toSet()
+        runtime.applyAllowedRecipients(valid)
+        text = valid.joinToString(", ")
+        note = if (valid.size == parts.size) "白名单已保存" else "已保存有效号码，忽略了无效或重复内容"
+    }) { Text("保存白名单") }
 }
 
 @Composable

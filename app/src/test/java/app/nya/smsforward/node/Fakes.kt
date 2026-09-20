@@ -24,6 +24,7 @@ class MemorySettings : NodeSettings {
     override var lastError: String? = null
     override var sendPolicy = SendPolicy.OFF
     override var sendLimitPerHour = 10
+    override var allowedRecipients: Set<String> = emptySet()
     override var syncSent = false
     override var backfillDays = 0
     override var backfilledDays = 0

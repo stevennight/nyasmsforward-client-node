@@ -88,6 +88,13 @@ class SendGateTest {
     }
 
     @Test
+    fun `local allowlist restricts both replies and new messages`() {
+        val r = Rig(SendPolicy.ANY).apply { settings.allowedRecipients = setOf("13800000000") }
+        assertEquals(GateDecision.Allow, r.gate.check(task(mode = TaskMode.NEW, to = "+8613800000000")))
+        assertEquals(GateDecision.Reject(SendError.RECIPIENT_NOT_ALLOWED), r.gate.check(task(mode = TaskMode.NEW, to = "13900000000")))
+    }
+
+    @Test
     fun `expired tasks are dropped whatever the policy`() {
         val r = Rig(SendPolicy.ANY)
         assertEquals(GateDecision.Reject(SendError.EXPIRED), r.gate.check(task(expiresAt = NOW)))

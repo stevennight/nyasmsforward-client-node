@@ -44,6 +44,7 @@ data class SendReceipt(val taskId: String, val status: ReceiptStatus, val error:
 object SendError {
     const val POLICY_DENIED = "policy_denied"
     const val RECIPIENT_NOT_RECENT = "recipient_not_recent"
+    const val RECIPIENT_NOT_ALLOWED = "recipient_not_allowed"
     const val RATE_LIMITED = "rate_limited"
     const val EXPIRED = "expired"
     const val NO_PERMISSION = "no_permission"
