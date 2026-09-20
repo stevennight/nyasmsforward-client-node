@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
@@ -11,6 +12,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.selection.selectable
@@ -79,12 +82,12 @@ fun SendSettingsCard(state: UiState, runtime: NodeRuntime, resumeTick: Int) {
 
         if (state.sendPolicy != SendPolicy.OFF) {
             Text("每小时最多发送", fontWeight = FontWeight.Medium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ChoiceRow {
                 for (n in LIMITS) {
                     if (n == state.sendLimitPerHour) {
-                        Button(onClick = {}) { Text("$n") }
+                        Button(onClick = {}) { ChoiceLabel("$n") }
                     } else {
-                        OutlinedButton(onClick = { runtime.applySendLimit(n) }) { Text("$n") }
+                        OutlinedButton(onClick = { runtime.applySendLimit(n) }) { ChoiceLabel("$n") }
                     }
                 }
             }
@@ -100,7 +103,7 @@ fun SendSettingsCard(state: UiState, runtime: NodeRuntime, resumeTick: Int) {
                     request.launch(arrayOf(Manifest.permission.SEND_SMS, Manifest.permission.READ_PHONE_STATE))
                 }) { Text("授予权限") }
             }
-            BatteryHint()
+            BatteryHint(resumeTick)
         }
     }
 }
@@ -124,17 +127,46 @@ private fun Warning(text: String) {
     Text(text, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
 }
 
-/** The system may stop a background connection to save power; exempting the app keeps the channel reliable. */
+/** A row of choices that wraps whole buttons onto the next line instead of squeezing a label into several lines. */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun BatteryHint() {
+private fun ChoiceRow(content: @Composable () -> Unit) {
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { content() }
+}
+
+@Composable
+private fun ChoiceLabel(text: String) {
+    Text(text, maxLines = 1, softWrap = false)
+}
+
+/**
+ * The system may stop a background connection to save power; exempting the app keeps the channel reliable. The state is
+ * read again whenever the app comes back to the foreground (the user answers the system dialog outside of it), and it
+ * stays visible once granted instead of disappearing.
+ */
+@Composable
+private fun BatteryHint(resumeTick: Int) {
     val context = LocalContext.current
-    val exempt = context.getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(context.packageName) == true
-    if (exempt) return
+    val exempt = remember(resumeTick) {
+        context.getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(context.packageName) == true
+    }
+    if (exempt) {
+        Text("已允许本应用不受电池优化限制 ✓", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary)
+        return
+    }
     Text(
         "为了让下发通道不被系统杀掉，建议把本应用加入“不受电池优化限制”（部分国产系统还需要允许自启动和后台运行）。",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
     )
-    OutlinedButton(onClick = { context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)) }) { Text("电池优化设置") }
+    OutlinedButton(onClick = {
+        // The direct "allow" dialog when the system offers it, otherwise the list where it can be switched by hand.
+        val direct = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + context.packageName))
+        try {
+            context.startActivity(direct)
+        } catch (e: Exception) {
+            context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        }
+    }) { Text("允许不受电池优化限制") }
 }
 
 /** One line for the status screen: is sending on, and is the channel up. */
@@ -189,8 +221,9 @@ fun SentSyncCard(state: UiState, runtime: NodeRuntime, resumeTick: Int) {
         // Without the permission there is nothing to read: keep the switch off instead of pretending.
         if (!ok) runtime.applySyncSent(false)
     }
-    val on = runtime.settings.syncSent
-    val days = runtime.settings.backfillDays
+    // From the observed state, not read from the settings in place: a plain read is not re-composed after a tap.
+    val on = state.syncSent
+    val days = state.backfillDays
 
     SectionCard("同步手机上发出的短信（可选）") {
         Text(
@@ -214,12 +247,12 @@ fun SentSyncCard(state: UiState, runtime: NodeRuntime, resumeTick: Int) {
         }
         if (on) {
             Text("回补历史（只做一次，标为已读、不弹通知）", fontWeight = FontWeight.Medium)
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ChoiceRow {
                 for ((n, label) in HISTORY_CHOICES) {
                     if (n == days) {
-                        Button(onClick = {}) { Text(label) }
+                        Button(onClick = {}) { ChoiceLabel(label) }
                     } else {
-                        OutlinedButton(onClick = { runtime.applyBackfillDays(n) }) { Text(label) }
+                        OutlinedButton(onClick = { runtime.applyBackfillDays(n) }) { ChoiceLabel(label) }
                     }
                 }
             }

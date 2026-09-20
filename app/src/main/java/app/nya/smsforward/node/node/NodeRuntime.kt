@@ -59,6 +59,8 @@ data class UiState(
     val sendLimitPerHour: Int = 10,
     val channel: ChannelState = ChannelState.Idle,
     val sendTasks: List<LedgerEntry> = emptyList(),
+    val syncSent: Boolean = false,
+    val backfillDays: Int = 0,
 )
 
 /**
@@ -123,6 +125,7 @@ class NodeRuntime private constructor(private val app: Context) {
 
     fun applySendLimit(perHour: Int) {
         settings.sendLimitPerHour = perHour
+        scope.launch { refresh() }
     }
 
     // --- sent messages and history (M4) ---
@@ -139,6 +142,7 @@ class NodeRuntime private constructor(private val app: Context) {
             SentSyncScheduler.disable(app)
         }
         channel.sendHello()
+        scope.launch { refresh() }
     }
 
     /** History to report once when sync is on: 0 (none), 7 or 30 days. */
@@ -146,6 +150,7 @@ class NodeRuntime private constructor(private val app: Context) {
         settings.backfillDays = days
         if (settings.syncSent) SentSyncScheduler.requestSoon(app)
         channel.sendHello()
+        scope.launch { refresh() }
     }
 
     private val _state = MutableStateFlow(UiState())
@@ -171,6 +176,8 @@ class NodeRuntime private constructor(private val app: Context) {
                 sendLimitPerHour = settings.sendLimitPerHour,
                 channel = _channelState.value,
                 sendTasks = ledger.recent(5),
+                syncSent = settings.syncSent,
+                backfillDays = settings.backfillDays,
             )
         }
         _state.value = next

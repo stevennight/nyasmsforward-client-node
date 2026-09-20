@@ -24,6 +24,14 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- CAMERA: only to scan the pairing QR code, asked when the scan button is pressed. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
+    <!-- Lets the settings page show the system "do not optimise battery for this app" dialog directly. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+
     <!--
       READ_SMS (M4): only for the opt-in "sync sent messages" and history backfill, requested at the moment the user
       switches that on. Nothing reads the SMS database while it is off.

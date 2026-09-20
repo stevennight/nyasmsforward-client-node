@@ -83,6 +83,7 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.androidx.work.runtime)
+    implementation(libs.zxing.embedded) // QR scanner for pairing (works without Google Play services)
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)

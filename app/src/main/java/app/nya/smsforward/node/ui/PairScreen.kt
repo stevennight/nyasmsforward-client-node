@@ -1,6 +1,7 @@
 package app.nya.smsforward.node.ui
 
 import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -12,6 +13,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -28,10 +30,13 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import app.nya.smsforward.node.node.ConnectionKind
 import app.nya.smsforward.node.node.NodeRuntime
+import app.nya.smsforward.node.node.PairLink
 import app.nya.smsforward.node.node.PairResult
 import app.nya.smsforward.node.node.UiState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.withContext
 
 /**
@@ -48,6 +53,22 @@ fun PairScreen(state: UiState, runtime: NodeRuntime) {
     var codeError by remember { mutableStateOf<String?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var busy by remember { mutableStateOf(false) }
+
+    // The console shows the pairing link as a QR code: scanning fills in the address and the code. The camera permission
+    // is asked by the scanner screen itself, only when this button is used.
+    val scanner = rememberLauncherForActivityResult(ScanContract()) { result ->
+        val text = result.contents ?: return@rememberLauncherForActivityResult // cancelled
+        val link = PairLink.parse(text)
+        if (link == null) {
+            message = "这不是 NyaSmsForward 的配对二维码。请扫描 Web「设备与客户端」里生成的二维码。"
+        } else {
+            url = link.server
+            code = link.code
+            urlError = null
+            codeError = null
+            message = null
+        }
+    }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(
@@ -67,6 +88,20 @@ fun PairScreen(state: UiState, runtime: NodeRuntime) {
                     if (state.pending > 0) Text("本机有 ${state.pending} 条短信等待上报。")
                 }
             }
+
+            OutlinedButton(
+                enabled = !busy,
+                modifier = Modifier.fillMaxWidth(),
+                onClick = {
+                    scanner.launch(
+                        ScanOptions()
+                            .setDesiredBarcodeFormats(ScanOptions.QR_CODE)
+                            .setPrompt("对准 Web 里生成的配对二维码")
+                            .setBeepEnabled(false)
+                            .setOrientationLocked(false),
+                    )
+                },
+            ) { Text("扫描配对二维码") }
 
             OutlinedTextField(
                 value = url,
