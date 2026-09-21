@@ -39,13 +39,27 @@ object SimSlots {
                     slot = it.simSlotIndex + 1,
                     subscriptionId = it.subscriptionId,
                     label = (it.carrierName ?: it.displayName)?.toString()?.takeIf(String::isNotBlank),
-                    // The platform may return an empty number even with the permission; that is fine. In that case the
-                    // server deliberately keeps the old slot-only compatibility route rather than guessing a card.
-                    number = if (canReadNumbers) runCatching { it.number?.takeIf(String::isNotBlank) }.getOrNull() else null,
+                    // SubscriptionInfo.number is empty on some Android/OEM builds even when the permission is
+                    // granted. Android 13 added a subscription-aware lookup that checks the carrier/UICC/IMS
+                    // sources; use it first and retain the old value as a compatibility fallback.
+                    number = phoneNumber(manager, it, canReadNumbers),
                 )
             }.sortedBy { it.slot }
         } catch (e: SecurityException) {
             emptyList()
         }
+    }
+
+    @Suppress("DEPRECATION")
+    @SuppressLint("MissingPermission")
+    private fun phoneNumber(manager: SubscriptionManager, info: android.telephony.SubscriptionInfo, canReadNumbers: Boolean): String? {
+        if (!canReadNumbers) return null
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            val number = runCatching { manager.getPhoneNumber(info.subscriptionId) }
+                .getOrNull()
+                ?.takeIf(String::isNotBlank)
+            if (number != null) return number
+        }
+        return runCatching { info.number?.takeIf(String::isNotBlank) }.getOrNull()
     }
 }
