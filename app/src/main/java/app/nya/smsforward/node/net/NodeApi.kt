@@ -2,9 +2,9 @@ package app.nya.smsforward.node.net
 
 import kotlinx.serialization.Serializable
 
-/** One SIM slot as reported at pairing (docs/协议.md §3). Labels need READ_PHONE_STATE; without it only slots are known. */
+/** One SIM slot as reported at pairing. The number identifies the card/line; the slot is only its current location. */
 @Serializable
-data class SimInfo(val slot: Int, val subscriptionId: Int? = null, val label: String? = null)
+data class SimInfo(val slot: Int, val subscriptionId: Int? = null, val label: String? = null, val number: String? = null)
 
 data class ClaimRequest(
     val code: String,
@@ -41,6 +41,7 @@ data class UploadMessage(
     val direction: String = "in",
     val peer: String,
     val body: String,
+    val cardNumber: String? = null,
     val simSlot: Int? = null,
     val deviceTime: Long,
     val backfill: Boolean = false,

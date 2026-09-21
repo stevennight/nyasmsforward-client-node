@@ -16,6 +16,8 @@ data class SystemSms(
     /** Epoch millis. For received messages the time the SMSC stamped on it, which is what the live receiver used. */
     val time: Long,
     val simSlot: Int?,
+    /** The line number, when the platform SMS provider can associate one. */
+    val cardNumber: String? = null,
 )
 
 /** Read access to the SMS database (needs READ_SMS). The Android implementation is [app.nya.smsforward.node.sms.AndroidSmsBox]. */
@@ -99,8 +101,8 @@ class SentSync(
 
     private fun enqueue(deviceId: String, sms: SystemSms, direction: String, backfill: Boolean, now: Long): Boolean {
         val time = if (sms.time <= 0 || sms.time > now + MAX_FUTURE_MS) now else sms.time
-        val key = DedupeKey.compute(deviceId, sms.simSlot ?: 0, sms.address, time, sms.body)
-        return outbox.enqueue(NewOutboxItem(key, sms.address, sms.body, sms.simSlot, time, direction, backfill), now)
+        val key = DedupeKey.compute(deviceId, sms.cardNumber, sms.simSlot ?: 0, sms.address, time, sms.body)
+        return outbox.enqueue(NewOutboxItem(key, sms.address, sms.body, sms.simSlot, time, direction, backfill, sms.cardNumber), now)
     }
 
     private companion object {

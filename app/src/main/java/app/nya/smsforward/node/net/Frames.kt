@@ -31,6 +31,7 @@ private data class SendResultFrame(
 private data class SendSmsFrame(
     val taskId: String? = null,
     val mode: String? = null,
+    val cardNumber: String? = null,
     val simSlot: Int? = null,
     val to: String? = null,
     val body: String? = null,
@@ -71,6 +72,6 @@ object Frames {
         val body = f.body
         val expires = f.expiresAt
         if (id.isNullOrEmpty() || mode == null || to.isNullOrBlank() || body.isNullOrEmpty() || expires == null) return ServerFrame.Unknown
-        return ServerFrame.SendSms(SendTask(id, mode, f.simSlot, to, body, expires))
+        return ServerFrame.SendSms(SendTask(id, mode, f.simSlot, to, body, expires, f.cardNumber))
     }
 }

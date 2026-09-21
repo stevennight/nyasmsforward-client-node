@@ -27,7 +27,7 @@ class AndroidSmsBox(context: Context, private val sims: () -> List<SimInfo>) : S
         read(Telephony.Sms.Sent.CONTENT_URI, "date >= ?", arrayOf(sinceMillis.toString()), "date ASC LIMIT $limit", useSentTime = false)
 
     private fun read(uri: Uri, selection: String, args: Array<String>, order: String, useSentTime: Boolean): List<SystemSms> {
-        val slots = sims().associate { it.subscriptionId to it.slot }
+        val slots = sims().associateBy { it.subscriptionId }
         return query(uri, arrayOf("_id", "address", "body", "date", "date_sent", "sub_id"), selection, args, order) { c ->
             val date = c.getLong(3)
             val dateSent = c.getLong(4)
@@ -39,7 +39,8 @@ class AndroidSmsBox(context: Context, private val sims: () -> List<SimInfo>) : S
                 // A received message is stamped by the network (date_sent); that is the time the live receiver reported, so
                 // using it keeps history from duplicating what was already reported.
                 time = if (useSentTime && dateSent > 0) dateSent else date,
-                simSlot = sub?.let { slots[it] },
+                simSlot = sub?.let { slots[it]?.slot },
+                cardNumber = sub?.let { slots[it]?.number },
             )
         }.filter { it.address.isNotBlank() && it.body.isNotEmpty() }
     }

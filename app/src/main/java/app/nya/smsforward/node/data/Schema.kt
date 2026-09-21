@@ -9,7 +9,7 @@ package app.nya.smsforward.node.data
  * schema add statements and raise [LATEST]; never edit what has shipped.
  */
 object Schema {
-    const val LATEST = 3
+    const val LATEST = 4
 
     fun migrate(db: SqlDb) = db.transaction {
         if (db.version < LATEST) {
@@ -51,6 +51,7 @@ object Schema {
             // task sent so the sent box does not report it a second time. ALTER has no IF NOT EXISTS, so look first.
             addColumnIfMissing(db, "outbox", "direction", "TEXT NOT NULL DEFAULT 'in'")
             addColumnIfMissing(db, "outbox", "backfill", "INTEGER NOT NULL DEFAULT 0")
+            addColumnIfMissing(db, "outbox", "card_number", "TEXT")
             addColumnIfMissing(db, "send_tasks", "body_hash", "TEXT")
             db.version = LATEST
         }

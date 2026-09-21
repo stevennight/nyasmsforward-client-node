@@ -20,9 +20,10 @@ class IncomingHandler(
 ) {
     /**
      * @param simSlot 1-based SIM slot, or null when it cannot be determined
+     * @param cardNumber the line currently in that slot, when Android exposes it
      * @return how many new messages were queued (0 when the phone is not set up, or the broadcast was a repeat)
      */
-    fun onReceived(parts: List<SmsPart>, simSlot: Int?): Int {
+    fun onReceived(parts: List<SmsPart>, simSlot: Int?, cardNumber: String? = null): Int {
         // Before the first pairing there is no device identity to build dedupe keys from, and the user has not asked us
         // to collect anything yet. After a token is revoked the id is kept, so receiving continues (docs/协议.md §2.2).
         val deviceId = settings.deviceId ?: return 0
@@ -31,8 +32,8 @@ class IncomingHandler(
         var queued = 0
         for (sms in SmsAssembler.assemble(parts)) {
             val deviceTime = plausibleTime(sms.timestampMillis, now)
-            val key = DedupeKey.compute(deviceId, simSlot ?: 0, sms.peer, deviceTime, sms.body)
-            if (outbox.enqueue(NewOutboxItem(key, sms.peer, sms.body, simSlot, deviceTime), now)) {
+            val key = DedupeKey.compute(deviceId, cardNumber, simSlot ?: 0, sms.peer, deviceTime, sms.body)
+            if (outbox.enqueue(NewOutboxItem(key, sms.peer, sms.body, simSlot, deviceTime, cardNumber = cardNumber), now)) {
                 queued++
                 // Only real numbers can ever be replied to; alphanumeric senders ("示例银行") never qualify.
                 if (PeerKey.isReplyable(sms.peer)) outbox.touchPeer(PeerKey.normalize(sms.peer), now)

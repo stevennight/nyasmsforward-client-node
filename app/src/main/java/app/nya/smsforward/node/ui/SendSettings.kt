@@ -51,9 +51,11 @@ fun SendSettingsCard(state: UiState, runtime: NodeRuntime, resumeTick: Int) {
     val context = LocalContext.current
     var canSend by remember(resumeTick) { mutableStateOf(granted(context, Manifest.permission.SEND_SMS)) }
     var canReadSims by remember(resumeTick) { mutableStateOf(granted(context, Manifest.permission.READ_PHONE_STATE)) }
+    var canReadNumbers by remember(resumeTick) { mutableStateOf(granted(context, Manifest.permission.READ_PHONE_NUMBERS)) }
     val request = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
         canSend = result[Manifest.permission.SEND_SMS] ?: canSend
         canReadSims = result[Manifest.permission.READ_PHONE_STATE] ?: canReadSims
+        canReadNumbers = result[Manifest.permission.READ_PHONE_NUMBERS] ?: canReadNumbers
     }
 
     fun choose(policy: SendPolicy) {
@@ -62,6 +64,7 @@ fun SendSettingsCard(state: UiState, runtime: NodeRuntime, resumeTick: Int) {
             val missing = buildList {
                 if (!canSend) add(Manifest.permission.SEND_SMS)
                 if (!canReadSims) add(Manifest.permission.READ_PHONE_STATE)
+                if (!canReadNumbers) add(Manifest.permission.READ_PHONE_NUMBERS)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU && !granted(context, Manifest.permission.POST_NOTIFICATIONS)) {
                     add(Manifest.permission.POST_NOTIFICATIONS) // the service notification is only visible with it
                 }
@@ -101,9 +104,10 @@ fun SendSettingsCard(state: UiState, runtime: NodeRuntime, resumeTick: Int) {
 
             if (!canSend) Warning("没有“发送短信”权限，下发任务都会失败（no_permission）。")
             if (!canReadSims) Warning("没有“读取 SIM 信息”权限，无法按卡槽选择用哪张卡发送，指定了卡槽的任务会失败。")
-            if (!canSend || !canReadSims) {
+            if (!canReadNumbers) Warning("没有“读取本机号码”权限，换卡槽后无法按号码定位卡，只能兼容旧的卡槽任务。")
+            if (!canSend || !canReadSims || !canReadNumbers) {
                 OutlinedButton(onClick = {
-                    request.launch(arrayOf(Manifest.permission.SEND_SMS, Manifest.permission.READ_PHONE_STATE))
+                    request.launch(arrayOf(Manifest.permission.SEND_SMS, Manifest.permission.READ_PHONE_STATE, Manifest.permission.READ_PHONE_NUMBERS))
                 }) { Text("授予权限") }
             }
             BatteryHint(resumeTick)

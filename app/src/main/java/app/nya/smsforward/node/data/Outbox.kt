@@ -11,6 +11,7 @@ data class NewOutboxItem(
     val direction: String = "in",
     /** History read from the SMS database: reported quietly (no alert, already read). */
     val backfill: Boolean = false,
+    val cardNumber: String? = null,
 )
 
 data class OutboxItem(
@@ -23,6 +24,7 @@ data class OutboxItem(
     val attempts: Int,
     val direction: String = "in",
     val backfill: Boolean = false,
+    val cardNumber: String? = null,
 )
 
 enum class OutboxState(val wire: String) {

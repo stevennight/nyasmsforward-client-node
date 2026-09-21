@@ -106,7 +106,7 @@ class Uploader(
     }
 
     private fun OutboxItem.toWire() = UploadMessage(
-        dedupeKey = dedupeKey, direction = direction, peer = peer, body = body, simSlot = simSlot, deviceTime = deviceTime,
+        dedupeKey = dedupeKey, direction = direction, peer = peer, body = body, cardNumber = cardNumber, simSlot = simSlot, deviceTime = deviceTime,
         backfill = backfill,
     )
 

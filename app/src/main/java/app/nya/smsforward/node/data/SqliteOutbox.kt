@@ -8,18 +8,18 @@ class SqliteOutbox(private val db: SqlDb) : Outbox {
 
     override fun enqueue(item: NewOutboxItem, now: Long): Boolean =
         db.execute(
-            "INSERT OR IGNORE INTO outbox (dedupe_key, peer, body, sim_slot, device_time, created_at, direction, backfill) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            listOf(item.dedupeKey, item.peer, item.body, item.simSlot, item.deviceTime, now, item.direction, if (item.backfill) 1 else 0),
+            "INSERT OR IGNORE INTO outbox (dedupe_key, peer, body, sim_slot, device_time, created_at, direction, backfill, card_number) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            listOf(item.dedupeKey, item.peer, item.body, item.simSlot, item.deviceTime, now, item.direction, if (item.backfill) 1 else 0, item.cardNumber),
         ) > 0
 
     override fun pending(limit: Int): List<OutboxItem> =
         db.query(
-            "SELECT id, dedupe_key, peer, body, sim_slot, device_time, attempts, direction, backfill FROM outbox WHERE state = 'pending' ORDER BY id LIMIT ?",
+            "SELECT id, dedupe_key, peer, body, sim_slot, device_time, attempts, direction, backfill, card_number FROM outbox WHERE state = 'pending' ORDER BY id LIMIT ?",
             listOf(limit),
         ) { r ->
             OutboxItem(
                 r.long(0), r.string(1), r.string(2), r.string(3), r.longOrNull(4)?.toInt(), r.long(5), r.long(6).toInt(),
-                r.string(7), r.long(8) != 0L,
+                r.string(7), r.long(8) != 0L, r.stringOrNull(9),
             )
         }
 

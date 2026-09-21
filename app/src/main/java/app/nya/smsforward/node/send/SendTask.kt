@@ -13,17 +13,19 @@ enum class TaskMode(val wire: String) {
 /**
  * One `send_sms` frame: an SMS the server wants this phone to send.
  *
- * @property simSlot 1-based SIM slot the message should leave from (for replies: the SIM the original arrived on), or
- *   null for "the phone's default SMS SIM"
+ * @property cardNumber the line that must send. It is preferred over [simSlot],
+ *   because a card can move to a different slot.
+ * @property simSlot legacy route fallback for servers that have not learned a card number yet.
  * @property expiresAt epoch millis after which the task must be dropped instead of sent
  */
 data class SendTask(
     val taskId: String,
-    val mode: TaskMode,
-    val simSlot: Int?,
-    val to: String,
-    val body: String,
-    val expiresAt: Long,
+	val mode: TaskMode,
+	val simSlot: Int?,
+	val to: String,
+	val body: String,
+	val expiresAt: Long,
+	val cardNumber: String? = null,
 )
 
 enum class ReceiptStatus(val wire: String) {

@@ -10,6 +10,9 @@
     <!-- Optional: read the SIM operator names for the pairing request. Slot numbers work without it. -->
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
 
+    <!-- Optional: lets the app identify a line by its own phone number after cards move between slots. -->
+    <uses-permission android:name="android.permission.READ_PHONE_NUMBERS" />
+
     <!-- Optional (Android 13+): tell the user when the token was revoked and the phone must be paired again. -->
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 

@@ -70,7 +70,7 @@ class SendCoordinator(
             is GateDecision.Reject -> return reject(decision.error)
         }
         if (!sender.canSend()) return reject(SendError.NO_PERMISSION)
-        val sim = when (val choice = SimResolver.resolve(task.simSlot, sender.activeSims(), sender.canReadSims())) {
+		val sim = when (val choice = SimResolver.resolve(task.cardNumber, task.simSlot, sender.activeSims(), sender.canReadSims())) {
             SimChoice.Unavailable -> return reject(SendError.SIM_UNAVAILABLE)
             SimChoice.NoPermission -> return reject(SendError.NO_PERMISSION)
             else -> choice

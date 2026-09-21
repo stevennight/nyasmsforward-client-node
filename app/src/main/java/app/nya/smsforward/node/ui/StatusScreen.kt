@@ -54,6 +54,7 @@ private data class Perm(val permission: String, val title: String, val hint: Str
 private fun permissions(): List<Perm> = buildList {
     add(Perm(Manifest.permission.RECEIVE_SMS, "接收短信", "必需。没有它就收不到任何短信。", true))
     add(Perm(Manifest.permission.READ_PHONE_STATE, "读取 SIM 信息", "可选。显示卡 1 / 卡 2 的运营商名称。", false))
+    add(Perm(Manifest.permission.READ_PHONE_NUMBERS, "读取本机号码", "可选。用于在换卡槽后仍按正确的号码发送。", false))
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         add(Perm(Manifest.permission.POST_NOTIFICATIONS, "通知", "可选。令牌失效需要重新配对时提醒你。", false))
     }

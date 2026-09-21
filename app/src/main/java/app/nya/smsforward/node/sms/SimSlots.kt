@@ -31,6 +31,7 @@ object SimSlots {
     @SuppressLint("MissingPermission") // guarded by the explicit check below
     fun activeSims(context: Context): List<SimInfo> {
         if (context.checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) return emptyList()
+        val canReadNumbers = context.checkSelfPermission(Manifest.permission.READ_PHONE_NUMBERS) == PackageManager.PERMISSION_GRANTED
         return try {
             val manager = context.getSystemService(SubscriptionManager::class.java) ?: return emptyList()
             manager.activeSubscriptionInfoList.orEmpty().map {
@@ -38,6 +39,9 @@ object SimSlots {
                     slot = it.simSlotIndex + 1,
                     subscriptionId = it.subscriptionId,
                     label = (it.carrierName ?: it.displayName)?.toString()?.takeIf(String::isNotBlank),
+                    // The platform may return an empty number even with the permission; that is fine. In that case the
+                    // server deliberately keeps the old slot-only compatibility route rather than guessing a card.
+                    number = if (canReadNumbers) runCatching { it.number?.takeIf(String::isNotBlank) }.getOrNull() else null,
                 )
             }.sortedBy { it.slot }
         } catch (e: SecurityException) {
