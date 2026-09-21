@@ -19,6 +19,9 @@ sealed interface SimChoice {
 object SimResolver {
     /** Maps a card number to the subscription that currently owns it. Slot is a legacy fallback only. */
     fun resolve(cardNumber: String?, slot: Int?, sims: List<SimInfo>, canReadSims: Boolean): SimChoice {
+        // An unqualified task deliberately uses Android's default SMS SIM. That path does not
+        // need READ_PHONE_STATE/READ_PHONE_NUMBERS because it never inspects the SIM list.
+        if (cardNumber.isNullOrBlank() && slot == null) return SimChoice.Default
         if (!canReadSims) return SimChoice.NoPermission
         if (!cardNumber.isNullOrBlank()) {
             val key = PeerKey.normalize(cardNumber)
@@ -26,7 +29,6 @@ object SimResolver {
                 ?: return SimChoice.Unavailable
             return SimChoice.Subscription(id)
         }
-        if (slot == null) return SimChoice.Default
         val id = sims.firstOrNull { it.slot == slot }?.subscriptionId ?: return SimChoice.Unavailable
         return SimChoice.Subscription(id)
     }
