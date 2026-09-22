@@ -24,6 +24,7 @@ import app.nya.smsforward.node.service.NodeService
 import app.nya.smsforward.node.service.SendChannel
 import app.nya.smsforward.node.sms.AndroidSmsBox
 import app.nya.smsforward.node.sms.SentSync
+import app.nya.smsforward.node.sms.PeerKey
 import app.nya.smsforward.node.sms.SimSlots
 import app.nya.smsforward.node.work.SentSyncScheduler
 import app.nya.smsforward.node.work.UploadScheduler
@@ -65,6 +66,7 @@ data class UiState(
     val backfillDays: Int = 0,
     /** The SIM inventory Android currently exposes to this app; shown locally for diagnosis. */
     val sims: List<SimInfo> = emptyList(),
+    val manualSimNumbers: Map<Int, String> = emptyMap(),
 )
 
 /**
@@ -90,7 +92,7 @@ class NodeRuntime private constructor(private val app: Context) {
             api, settings, tokens,
             appVersion = BuildConfig.VERSION_NAME,
             defaultDeviceName = Build.MODEL?.takeIf { it.isNotBlank() } ?: "接收端手机",
-            sims = { SimSlots.activeSims(app) },
+            sims = { SimSlots.activeSims(app, settings.manualSimNumbers) },
             onPaired = {
                 Notifier.clearNeedsPairing(app)
                 UploadScheduler.enqueue(app)
@@ -101,7 +103,7 @@ class NodeRuntime private constructor(private val app: Context) {
 
     // --- sending (M3) ---
     private val _channelState = MutableStateFlow<ChannelState>(ChannelState.Idle)
-    val sender by lazy { AndroidSmsSender(app) }
+    val sender by lazy { AndroidSmsSender(app) { settings.manualSimNumbers } }
     private val tracker = SendStatusTracker()
     val coordinator: SendCoordinator by lazy {
         SendCoordinator(
@@ -137,8 +139,26 @@ class NodeRuntime private constructor(private val app: Context) {
         scope.launch { refresh() }
     }
 
+    /** Saves a user-supplied line number for a slot and reports it on the next phone hello. */
+    fun setManualSimNumber(slot: Int, raw: String): String? {
+        val value = raw.trim()
+        if (slot !in 1..15) return "SIM 槽位不正确"
+        if (value.isNotEmpty() && (!PeerKey.isReplyable(value) || value.none(Char::isDigit))) {
+            return "请输入电话号码，只能包含数字、+、空格、短横线或括号"
+        }
+        val next = settings.manualSimNumbers.toMutableMap()
+        if (value.isEmpty()) next.remove(slot) else next[slot] = PeerKey.normalize(value)
+        settings.manualSimNumbers = next
+        channel.sendHello()
+        scope.launch {
+            NodeService.sync(app)
+            refresh()
+        }
+        return null
+    }
+
     // --- sent messages and history (M4) ---
-    val smsBox by lazy { AndroidSmsBox(app) { SimSlots.activeSims(app) } }
+    val smsBox by lazy { AndroidSmsBox(app) { SimSlots.activeSims(app, settings.manualSimNumbers) } }
     val sentSync by lazy { SentSync(settings, smsBox, outbox, ledger, System::currentTimeMillis) }
 
     /** Switches "sync sent messages" on or off. Turning it on starts a fresh cursor at the current end of the sent box. */
@@ -188,7 +208,8 @@ class NodeRuntime private constructor(private val app: Context) {
                 sendTasks = ledger.recent(5),
                 syncSent = settings.syncSent,
                 backfillDays = settings.backfillDays,
-                sims = SimSlots.activeSims(app),
+                sims = SimSlots.activeSims(app, settings.manualSimNumbers),
+                manualSimNumbers = settings.manualSimNumbers,
             )
         }
         _state.value = next

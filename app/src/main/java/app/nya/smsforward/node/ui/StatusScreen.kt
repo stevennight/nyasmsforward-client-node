@@ -21,6 +21,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -206,19 +207,11 @@ fun StatusScreen(state: UiState, runtime: NodeRuntime, resumeTick: Int, onOpenSe
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                     state.sims.forEach { sim ->
-                        Column(modifier = Modifier.fillMaxWidth()) {
-                            Text("SIM${sim.slot}", fontWeight = FontWeight.Medium)
-                            Text(
-                                "订阅 ID：${sim.subscriptionId?.toString() ?: "未提供"} · 运营商：${sim.label ?: "未提供"}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            Text(
-                                "本机号码：${sim.number?.let(::maskPhoneNumber) ?: "系统未提供"}",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = if (sim.number == null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-                            )
-                        }
+                        SimDiagnosticRow(
+                            sim = sim,
+                            manualNumber = state.manualSimNumbers[sim.slot].orEmpty(),
+                            runtime = runtime,
+                        )
                     }
                 }
             }
@@ -235,6 +228,44 @@ fun StatusScreen(state: UiState, runtime: NodeRuntime, resumeTick: Int, onOpenSe
 
 private fun maskPhoneNumber(number: String): String =
     if (number.length <= 7) number else number.take(3) + "****" + number.takeLast(4)
+
+@Composable
+private fun SimDiagnosticRow(sim: app.nya.smsforward.node.net.SimInfo, manualNumber: String, runtime: NodeRuntime) {
+    var draft by remember(sim.slot, manualNumber) { mutableStateOf(manualNumber) }
+    var message by remember(sim.slot) { mutableStateOf<String?>(null) }
+    Column(modifier = Modifier.fillMaxWidth()) {
+        Text("SIM${sim.slot}", fontWeight = FontWeight.Medium)
+        Text(
+            "订阅 ID：${sim.subscriptionId?.toString() ?: "未提供"} · 运营商：${sim.label ?: "未提供"}",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            "当前上报号码：${sim.number?.let(::maskPhoneNumber) ?: "系统未提供"}",
+            style = MaterialTheme.typography.bodySmall,
+            color = if (sim.number == null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+        )
+        OutlinedTextField(
+            value = draft,
+            onValueChange = { draft = it; message = null },
+            label = { Text("手动设置 SIM${sim.slot} 号码（可选）") },
+            placeholder = { Text("例如 13800138000") },
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Button(onClick = { message = runtime.setManualSimNumber(sim.slot, draft) ?: "已保存；下次连接会按这个号码上报" }) {
+                Text("保存并上报")
+            }
+            if (manualNumber.isNotEmpty()) {
+                OutlinedButton(onClick = { draft = ""; message = runtime.setManualSimNumber(sim.slot, "") ?: "已清除手动号码" }) {
+                    Text("清除")
+                }
+            }
+        }
+        message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+    }
+}
 
 @Composable
 private fun RecentRow(item: RecentItem) {

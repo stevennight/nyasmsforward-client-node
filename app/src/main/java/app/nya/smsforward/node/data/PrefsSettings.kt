@@ -60,6 +60,20 @@ class PrefsSettings(context: Context) : NodeSettings {
         get() = prefs.getLong("sent_cursor", -1L)
         set(value) = prefs.edit().putLong("sent_cursor", value).apply()
 
+    override var manualSimNumbers: Map<Int, String>
+        get() = prefs.getStringSet("manual_sim_numbers", emptySet()).orEmpty().mapNotNull { entry ->
+            val separator = entry.indexOf('=')
+            if (separator <= 0) return@mapNotNull null
+            val slot = entry.substring(0, separator).toIntOrNull() ?: return@mapNotNull null
+            val number = entry.substring(separator + 1).trim()
+            if (slot !in 1..15 || number.isBlank()) null else slot to number
+        }.toMap()
+        set(value) = prefs.edit().putStringSet(
+            "manual_sim_numbers",
+            value.filter { (slot, number) -> slot in 1..15 && number.isNotBlank() }
+                .map { (slot, number) -> "$slot=$number" }.toSet(),
+        ).apply()
+
     companion object {
         const val DEFAULT_LIMIT = 10
         const val MAX_LIMIT = 100

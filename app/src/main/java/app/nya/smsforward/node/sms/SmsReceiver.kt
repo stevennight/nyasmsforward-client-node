@@ -33,7 +33,7 @@ class SmsReceiver : BroadcastReceiver() {
         runtime.scope.launch(Dispatchers.IO) {
             try {
                 val cardNumber = slot?.let { wanted ->
-                    SimSlots.activeSims(context).firstOrNull { it.slot == wanted }?.number
+                    SimSlots.activeSims(context, runtime.settings.manualSimNumbers).firstOrNull { it.slot == wanted }?.number
                 }
                 if (runtime.incoming.onReceived(parts, slot, cardNumber) > 0) {
                     UploadScheduler.enqueue(context.applicationContext)

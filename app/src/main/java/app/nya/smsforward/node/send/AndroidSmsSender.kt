@@ -12,14 +12,14 @@ import app.nya.smsforward.node.net.SimInfo
 import app.nya.smsforward.node.sms.SimSlots
 
 /** [SmsSender] on the phone's SMS radio. */
-class AndroidSmsSender(context: Context) : SmsSender {
+class AndroidSmsSender(context: Context, private val manualNumbers: () -> Map<Int, String> = { emptyMap() }) : SmsSender {
     private val app = context.applicationContext
 
     override fun canSend(): Boolean = app.checkSelfPermission(Manifest.permission.SEND_SMS) == PackageManager.PERMISSION_GRANTED
 
     override fun canReadSims(): Boolean = app.checkSelfPermission(Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
 
-    override fun activeSims(): List<SimInfo> = SimSlots.activeSims(app)
+    override fun activeSims(): List<SimInfo> = SimSlots.activeSims(app, manualNumbers())
 
     override fun send(task: SendTask, sim: SimChoice) {
         val manager = managerFor(sim)

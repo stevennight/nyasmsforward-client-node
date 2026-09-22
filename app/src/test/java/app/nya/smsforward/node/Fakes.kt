@@ -29,6 +29,7 @@ class MemorySettings : NodeSettings {
     override var backfillDays = 0
     override var backfilledDays = 0
     override var sentCursor = -1L
+    override var manualSimNumbers: Map<Int, String> = emptyMap()
 }
 
 class MemoryTokens(var token: String? = null) : TokenStore {

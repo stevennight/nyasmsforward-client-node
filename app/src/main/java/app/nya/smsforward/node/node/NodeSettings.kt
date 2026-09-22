@@ -43,6 +43,9 @@ interface NodeSettings {
 
     /** Highest sent-box row id already handled; -1 until sync is switched on and the current end of the box is noted. */
     var sentCursor: Long
+
+    /** User-supplied line numbers keyed by 1-based SIM slot, used when Android does not expose a number. */
+    var manualSimNumbers: Map<Int, String>
 }
 
 /** Where the long-lived device token is kept (Android Keystore-encrypted in production). */

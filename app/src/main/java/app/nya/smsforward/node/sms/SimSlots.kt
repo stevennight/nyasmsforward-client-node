@@ -29,7 +29,7 @@ object SimSlots {
 
     /** Active SIMs. Needs READ_PHONE_STATE; without it the list is empty and only slot numbers are reported later. */
     @SuppressLint("MissingPermission") // guarded by the explicit check below
-    fun activeSims(context: Context): List<SimInfo> {
+    fun activeSims(context: Context, manualNumbers: Map<Int, String> = emptyMap()): List<SimInfo> {
         if (context.checkSelfPermission(Manifest.permission.READ_PHONE_STATE) != PackageManager.PERMISSION_GRANTED) return emptyList()
         val canReadNumbers = context.checkSelfPermission(Manifest.permission.READ_PHONE_NUMBERS) == PackageManager.PERMISSION_GRANTED
         return try {
@@ -42,7 +42,7 @@ object SimSlots {
                     // SubscriptionInfo.number is empty on some Android/OEM builds even when the permission is
                     // granted. Android 13 added a subscription-aware lookup that checks the carrier/UICC/IMS
                     // sources; use it first and retain the old value as a compatibility fallback.
-                    number = phoneNumber(manager, it, canReadNumbers),
+                    number = manualNumbers[it.simSlotIndex + 1] ?: phoneNumber(manager, it, canReadNumbers),
                 )
             }.sortedBy { it.slot }
         } catch (e: SecurityException) {
