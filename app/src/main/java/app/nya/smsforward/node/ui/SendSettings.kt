@@ -79,7 +79,7 @@ fun SendSettingsCard(state: UiState, runtime: NodeRuntime, resumeTick: Int) {
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Column(modifier = Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            PolicyOption(SendPolicy.OFF, "关闭", "拒绝所有下发任务，不保持后台连接。", state.sendPolicy, ::choose)
+            PolicyOption(SendPolicy.OFF, "关闭", "拒绝所有下发任务；后台连接仍用于同步平台删除。", state.sendPolicy, ::choose)
             PolicyOption(SendPolicy.REPLY, "仅回复", "只回复最近 7 天内给这台手机发过短信的号码，从收到短信的那张卡发出。", state.sendPolicy, ::choose)
             PolicyOption(SendPolicy.ANY, "允许新发", "除回复外，还可以向任意号码发短信。风险最大，请只在需要时开启。", state.sendPolicy, ::choose)
         }

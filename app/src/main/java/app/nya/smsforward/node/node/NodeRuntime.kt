@@ -112,7 +112,7 @@ class NodeRuntime private constructor(private val app: Context) {
         )
     }
     val channel: SendChannel by lazy {
-        SendChannel(app, scope, settings, tokens, sender, { coordinator }, _channelState, BuildConfig.VERSION_NAME)
+        SendChannel(app, scope, settings, tokens, sender, { smsBox }, { coordinator }, _channelState, BuildConfig.VERSION_NAME)
     }
 
     /**

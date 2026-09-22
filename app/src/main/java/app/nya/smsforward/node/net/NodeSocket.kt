@@ -1,6 +1,7 @@
 package app.nya.smsforward.node.net
 
 import app.nya.smsforward.node.send.SendTask
+import app.nya.smsforward.node.sms.DeleteSms
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
@@ -37,6 +38,8 @@ interface SocketHandler {
     fun onOpen()
 
     fun onSendSms(task: SendTask)
+
+    fun onDeleteSms(request: DeleteSms) {}
 }
 
 /** Why [NodeSocket.run] returned. */
@@ -126,6 +129,7 @@ class NodeSocket(
                 override fun onMessage(webSocket: WebSocket, text: String) {
                     when (val frame = Frames.parse(text)) {
                         is ServerFrame.SendSms -> handler.onSendSms(frame.task)
+                        is ServerFrame.DeleteSms -> handler.onDeleteSms(frame.request)
                         ServerFrame.Unknown -> Unit // an unknown frame type is not a reason to drop the connection
                     }
                 }

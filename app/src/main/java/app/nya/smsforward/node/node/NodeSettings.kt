@@ -61,4 +61,5 @@ fun NodeSettings.isPaired(tokens: TokenStore): Boolean = serverUrl != null && de
  * Whether the send channel should be running: paired, the token still good, and sending switched on. Receiving and
  * reporting SMS need none of this, so a phone whose policy is "off" never runs the foreground service.
  */
-fun NodeSettings.channelWanted(tokens: TokenStore): Boolean = isPaired(tokens) && !needsPairing && sendPolicy != SendPolicy.OFF
+// The channel also carries deletion commands, so it stays connected for a paired phone even when SMS sending is off.
+fun NodeSettings.channelWanted(tokens: TokenStore): Boolean = isPaired(tokens) && !needsPairing

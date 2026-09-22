@@ -13,8 +13,8 @@ import app.nya.smsforward.node.node.Notifier
 import app.nya.smsforward.node.node.channelWanted
 
 /**
- * Keeps the send channel alive. It runs only while sending is switched on (policy other than "off") and the phone is
- * paired: a phone that only receives and reports SMS needs no permanent process at all (docs/开发计划.md §2.1).
+ * Keeps the device channel alive while paired. Besides outgoing tasks, it receives platform deletion requests, so
+ * turning sending off does not close this connection.
  */
 class NodeService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null

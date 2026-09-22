@@ -20,6 +20,19 @@ data class SystemSms(
     val cardNumber: String? = null,
 )
 
+/** A server deletion request. Matching uses provider fields rather than the server id (the phone has no server id). */
+data class DeleteSms(
+    val messageId: Long,
+    val direction: String,
+    val peer: String,
+    val body: String,
+    val deviceTime: Long,
+    val simSlot: Int? = null,
+    val cardNumber: String? = null,
+)
+
+enum class DeleteOutcome(val wire: String) { DELETED("deleted"), NOT_FOUND("not_found"), DENIED("denied"), FAILED("failed") }
+
 /** Read access to the SMS database (needs READ_SMS). The Android implementation is [app.nya.smsforward.node.sms.AndroidSmsBox]. */
 interface SmsBox {
     /** The highest `_id` in the sent box, or 0 when it is empty. */
@@ -33,6 +46,9 @@ interface SmsBox {
 
     /** Sent messages from [sinceMillis] on, oldest first. */
     fun sentSince(sinceMillis: Long, limit: Int): List<SystemSms>
+
+    /** Best-effort removal from the system provider. Implementations may report DENIED when not the default SMS app. */
+    fun delete(request: DeleteSms): DeleteOutcome = DeleteOutcome.FAILED
 }
 
 /**

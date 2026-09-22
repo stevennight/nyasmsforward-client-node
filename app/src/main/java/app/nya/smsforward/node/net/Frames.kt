@@ -3,6 +3,8 @@ package app.nya.smsforward.node.net
 import app.nya.smsforward.node.send.SendReceipt
 import app.nya.smsforward.node.send.SendTask
 import app.nya.smsforward.node.send.TaskMode
+import app.nya.smsforward.node.sms.DeleteSms
+import app.nya.smsforward.node.sms.DeleteOutcome
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -39,9 +41,30 @@ private data class SendSmsFrame(
     val type: String? = null,
 )
 
+@Serializable
+private data class DeleteSmsFrame(
+    val messageId: Long? = null,
+    val direction: String? = null,
+    val peer: String? = null,
+    val body: String? = null,
+    val deviceTime: Long? = null,
+    val simSlot: Int? = null,
+    val cardNumber: String? = null,
+    val type: String? = null,
+)
+
+@Serializable
+private data class DeleteResultFrame(
+    val messageId: Long,
+    val status: String,
+    val error: String? = null,
+    val type: String = "delete_result",
+)
+
 /** What the server may send us. Frames of an unknown type or with missing fields are ignored, never fatal. */
 sealed interface ServerFrame {
     data class SendSms(val task: SendTask) : ServerFrame
+    data class DeleteSms(val request: app.nya.smsforward.node.sms.DeleteSms) : ServerFrame
     data object Unknown : ServerFrame
 }
 
@@ -59,7 +82,20 @@ object Frames {
     fun result(receipt: SendReceipt): String =
         json.encodeToString(SendResultFrame.serializer(), SendResultFrame(receipt.taskId, receipt.status.wire, receipt.error))
 
+    fun deleteResult(request: DeleteSms, outcome: DeleteOutcome): String =
+        json.encodeToString(DeleteResultFrame.serializer(), DeleteResultFrame(request.messageId, outcome.wire))
+
     fun parse(text: String): ServerFrame {
+		val kind = runCatching { json.decodeFromString(DeleteSmsFrame.serializer(), text) }.getOrNull()
+		if (kind?.type == "delete_sms") {
+			val id = kind.messageId ?: return ServerFrame.Unknown
+			val direction = kind.direction ?: return ServerFrame.Unknown
+			val peer = kind.peer?.takeIf { it.isNotBlank() } ?: return ServerFrame.Unknown
+			val body = kind.body?.takeIf { it.isNotEmpty() } ?: return ServerFrame.Unknown
+			val time = kind.deviceTime ?: return ServerFrame.Unknown
+			if (id <= 0 || direction !in listOf("in", "out")) return ServerFrame.Unknown
+			return ServerFrame.DeleteSms(app.nya.smsforward.node.sms.DeleteSms(id, direction, peer, body, time, kind.simSlot, kind.cardNumber))
+		}
         val f = try {
             json.decodeFromString(SendSmsFrame.serializer(), text)
         } catch (e: Exception) {

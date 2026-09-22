@@ -2,6 +2,7 @@ package app.nya.smsforward.node.sms
 
 import android.Manifest
 import android.content.Context
+import android.content.ContentUris
 import android.content.pm.PackageManager
 import android.database.Cursor
 import android.net.Uri
@@ -25,6 +26,38 @@ class AndroidSmsBox(context: Context, private val sims: () -> List<SimInfo>) : S
 
     override fun sentSince(sinceMillis: Long, limit: Int): List<SystemSms> =
         read(Telephony.Sms.Sent.CONTENT_URI, "date >= ?", arrayOf(sinceMillis.toString()), "date ASC LIMIT $limit", useSentTime = false)
+
+    override fun delete(request: DeleteSms): DeleteOutcome {
+        if (!canRead()) return DeleteOutcome.DENIED
+        val uri = if (request.direction == "out") Telephony.Sms.Sent.CONTENT_URI else Telephony.Sms.Inbox.CONTENT_URI
+        val start = request.deviceTime - MATCH_WINDOW_MS
+        val end = request.deviceTime + MATCH_WINDOW_MS
+        return try {
+            // Delete one row only. A provider may contain two identical verification messages, and a broad resolver
+            // delete would remove both. Compare normalized addresses because providers vary between +86 and local form.
+            val selection = "body = ? AND (date BETWEEN ? AND ? OR date_sent BETWEEN ? AND ?)"
+            val args = arrayOf(request.body, start.toString(), end.toString(), start.toString(), end.toString())
+            val candidate = app.contentResolver.query(uri, arrayOf("_id", "address", "date", "date_sent"), selection, args, null)?.use { c ->
+                var best: Pair<Long, Long>? = null
+                val requestedPeer = PeerKey.normalize(request.peer)
+                while (c.moveToNext()) {
+                    if (PeerKey.normalize(c.getString(1).orEmpty()) != requestedPeer) continue
+                    val sent = c.getLong(3)
+                    val time = if (request.direction == "in" && sent > 0) sent else c.getLong(2)
+                    val distance = kotlin.math.abs(time - request.deviceTime)
+                    if (best == null || distance < best.second) best = c.getLong(0) to distance
+                }
+                best?.first
+            }
+            if (candidate == null) DeleteOutcome.NOT_FOUND
+            else if (app.contentResolver.delete(ContentUris.withAppendedId(uri, candidate), null, null) > 0) DeleteOutcome.DELETED
+            else DeleteOutcome.NOT_FOUND
+        } catch (_: SecurityException) {
+            DeleteOutcome.DENIED
+        } catch (_: IllegalArgumentException) {
+            DeleteOutcome.FAILED
+        }
+    }
 
     private fun read(uri: Uri, selection: String, args: Array<String>, order: String, useSentTime: Boolean): List<SystemSms> {
         val slots = sims().associateBy { it.subscriptionId }
@@ -59,4 +92,6 @@ class AndroidSmsBox(context: Context, private val sims: () -> List<SimInfo>) : S
             emptyList() // a ROM whose provider lacks a column (date_sent / sub_id): better nothing than a crash
         }
     }
+
+    private companion object { const val MATCH_WINDOW_MS = 2 * 60 * 1000L }
 }

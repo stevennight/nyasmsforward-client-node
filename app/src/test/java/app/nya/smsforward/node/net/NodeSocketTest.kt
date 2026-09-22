@@ -4,6 +4,7 @@ import app.nya.smsforward.node.send.ReceiptStatus
 import app.nya.smsforward.node.send.SendReceipt
 import app.nya.smsforward.node.send.SendTask
 import app.nya.smsforward.node.send.TaskMode
+import app.nya.smsforward.node.sms.DeleteSms
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import kotlin.test.AfterTest
@@ -47,6 +48,13 @@ class FramesTest {
         val noSim = Frames.parse("""{"type":"send_sms","taskId":"t_2","mode":"new","simSlot":null,"to":"13900000000","body":"你好","expiresAt":5}""")
         assertIs<ServerFrame.SendSms>(noSim)
         assertEquals(null, noSim.task.simSlot)
+    }
+
+    @Test
+    fun `a delete_sms frame keeps the provider matching fields`() {
+        val frame = Frames.parse("""{"type":"delete_sms","messageId":42,"direction":"in","peer":"106901234","body":"code","deviceTime":1789830000000,"simSlot":1}""")
+        assertEquals(ServerFrame.DeleteSms(DeleteSms(42, "in", "106901234", "code", 1789830000000, 1)), frame)
+        assertTrue(""""type":"delete_result"""" in Frames.deleteResult(DeleteSms(42, "in", "106901234", "code", 1), app.nya.smsforward.node.sms.DeleteOutcome.DELETED))
     }
 
     @Test

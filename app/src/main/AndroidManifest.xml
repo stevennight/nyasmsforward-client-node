@@ -43,6 +43,8 @@
       switches that on. Nothing reads the SMS database while it is off.
     -->
     <uses-permission android:name="android.permission.READ_SMS" />
+    <!-- Needed for platform-side deletion when this app is allowed to write the SMS provider. -->
+    <uses-permission android:name="android.permission.WRITE_SMS" />
 
     <!-- The receiver phone may be a tablet with a SIM or a phone without telephony hardware in tests. -->
     <uses-feature android:name="android.hardware.telephony" android:required="false" />

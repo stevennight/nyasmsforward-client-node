@@ -18,6 +18,8 @@ import app.nya.smsforward.node.send.SendCoordinator
 import app.nya.smsforward.node.send.SendReceipt
 import app.nya.smsforward.node.send.SendTask
 import app.nya.smsforward.node.send.SmsSender
+import app.nya.smsforward.node.sms.AndroidSmsBox
+import app.nya.smsforward.node.sms.DeleteSms
 import java.util.concurrent.TimeUnit
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -27,7 +29,7 @@ import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 
 /**
- * The running send channel: one [NodeSocket] wired to the coordinator, alive while the foreground service is.
+ * The running device channel: one [NodeSocket] wired to sending and deletion, alive while the foreground service is.
  *
  * All the decisions live in [NodeSocket] (connection) and [SendCoordinator] (what to do with a task); this only connects
  * them and turns the socket's final answers into app state.
@@ -38,6 +40,7 @@ class SendChannel(
     private val settings: NodeSettings,
     private val tokens: TokenStore,
     private val sender: SmsSender,
+    private val smsBox: () -> AndroidSmsBox,
     private val coordinator: () -> SendCoordinator,
     private val state: MutableStateFlow<ChannelState>,
     private val appVersion: String,
@@ -89,6 +92,10 @@ class SendChannel(
 
                 override fun onSendSms(task: SendTask) {
                     scope.launch(Dispatchers.IO) { coordinator().onTask(task) }
+                }
+
+                override fun onDeleteSms(request: DeleteSms) {
+                    scope.launch(Dispatchers.IO) { socket?.send(Frames.deleteResult(request, smsBox().delete(request))) }
                 }
             },
             onState = { state.value = it },
