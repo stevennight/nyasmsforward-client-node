@@ -14,6 +14,7 @@ import app.nya.smsforward.node.data.SqliteOutbox
 import app.nya.smsforward.node.data.SqliteSendLedger
 import app.nya.smsforward.node.net.ChannelState
 import app.nya.smsforward.node.net.OkHttpNodeApi
+import app.nya.smsforward.node.net.SimInfo
 import app.nya.smsforward.node.policy.SendPolicy
 import app.nya.smsforward.node.send.AndroidSmsSender
 import app.nya.smsforward.node.send.SendCoordinator
@@ -62,6 +63,8 @@ data class UiState(
     val sendTasks: List<LedgerEntry> = emptyList(),
     val syncSent: Boolean = false,
     val backfillDays: Int = 0,
+    /** The SIM inventory Android currently exposes to this app; shown locally for diagnosis. */
+    val sims: List<SimInfo> = emptyList(),
 )
 
 /**
@@ -185,6 +188,7 @@ class NodeRuntime private constructor(private val app: Context) {
                 sendTasks = ledger.recent(5),
                 syncSent = settings.syncSent,
                 backfillDays = settings.backfillDays,
+                sims = SimSlots.activeSims(app),
             )
         }
         _state.value = next

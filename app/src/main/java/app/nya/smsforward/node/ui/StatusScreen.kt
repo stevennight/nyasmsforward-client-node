@@ -192,6 +192,37 @@ fun StatusScreen(state: UiState, runtime: NodeRuntime, resumeTick: Int, onOpenSe
                 }
             }
 
+            SectionCard("SIM 信息（仅本机显示）") {
+                if (state.sims.isEmpty()) {
+                    Text(
+                        "系统没有向本应用提供可见的 SIM 信息。请确认“读取 SIM 信息”已授权；授权后返回此页会自动刷新。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    Text(
+                        "这是 Android 当前返回给本应用的数据；号码仅在本机脱敏显示，用于判断是否成功读取。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    state.sims.forEach { sim ->
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            Text("SIM${sim.slot}", fontWeight = FontWeight.Medium)
+                            Text(
+                                "订阅 ID：${sim.subscriptionId?.toString() ?: "未提供"} · 运营商：${sim.label ?: "未提供"}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            Text(
+                                "本机号码：${sim.number?.let(::maskPhoneNumber) ?: "系统未提供"}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = if (sim.number == null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                }
+            }
+
             SectionCard("最近收到的短信") {
                 if (state.recent.isEmpty()) {
                     Text("还没有短信。收到后会在这里显示，并自动上报。", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -201,6 +232,9 @@ fun StatusScreen(state: UiState, runtime: NodeRuntime, resumeTick: Int, onOpenSe
         }
     }
 }
+
+private fun maskPhoneNumber(number: String): String =
+    if (number.length <= 7) number else number.take(3) + "****" + number.takeLast(4)
 
 @Composable
 private fun RecentRow(item: RecentItem) {
