@@ -92,7 +92,10 @@ fun StatusScreen(state: UiState, runtime: NodeRuntime, resumeTick: Int, onOpenSe
             modifier = Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Text("NyaSmsForward 接收端", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                Text("●", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleLarge)
+                Text("NyaSmsForward 接收端", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+            }
 
             SectionCard("连接状态") {
                 Text("已连接 ${state.serverUrl?.removePrefix("https://")?.removePrefix("http://").orEmpty()}", fontWeight = FontWeight.SemiBold)
