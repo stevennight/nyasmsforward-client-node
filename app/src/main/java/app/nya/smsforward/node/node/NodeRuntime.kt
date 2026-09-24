@@ -11,7 +11,9 @@ import app.nya.smsforward.node.data.PrefsSettings
 import app.nya.smsforward.node.data.RecentItem
 import app.nya.smsforward.node.data.SendLedger
 import app.nya.smsforward.node.data.SqliteOutbox
+import app.nya.smsforward.node.data.SmsTrash
 import app.nya.smsforward.node.data.SqliteSendLedger
+import app.nya.smsforward.node.inbox.Recycler
 import app.nya.smsforward.node.net.ChannelState
 import app.nya.smsforward.node.net.OkHttpNodeApi
 import app.nya.smsforward.node.net.SimInfo
@@ -158,7 +160,16 @@ class NodeRuntime private constructor(private val app: Context) {
     }
 
     // --- sent messages and history (M4) ---
-    val smsBox by lazy { AndroidSmsBox(app) { SimSlots.activeSims(app, settings.manualSimNumbers) } }
+    // Full edition: a platform deletion goes to the phone's recycle bin (30 days) instead of being final.
+    val smsTrash by lazy { SmsTrash(sqlDb) }
+    val recycler by lazy { Recycler(app, smsTrash) }
+    val smsBox by lazy {
+        AndroidSmsBox(
+            app,
+            sims = { SimSlots.activeSims(app, settings.manualSimNumbers) },
+            recycle = if (BuildConfig.FULL_EDITION) { id -> recycler.recycle(id, Recycler.ORIGIN_PLATFORM) } else null,
+        )
+    }
     val sentSync by lazy { SentSync(settings, smsBox, outbox, ledger, System::currentTimeMillis) }
 
     /** Switches "sync sent messages" on or off. Turning it on starts a fresh cursor at the current end of the sent box. */

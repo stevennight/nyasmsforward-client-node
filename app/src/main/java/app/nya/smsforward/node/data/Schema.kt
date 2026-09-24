@@ -9,7 +9,7 @@ package app.nya.smsforward.node.data
  * schema add statements and raise [LATEST]; never edit what has shipped.
  */
 object Schema {
-    const val LATEST = 4
+    const val LATEST = 5
 
     fun migrate(db: SqlDb) = db.transaction {
         if (db.version < LATEST) {
@@ -53,6 +53,24 @@ object Schema {
             addColumnIfMissing(db, "outbox", "backfill", "INTEGER NOT NULL DEFAULT 0")
             addColumnIfMissing(db, "outbox", "card_number", "TEXT")
             addColumnIfMissing(db, "send_tasks", "body_hash", "TEXT")
+
+            // Version 5 (full edition): the phone's recycle bin. A deleted SMS is copied here before it leaves the
+            // system database, so it can be put back for 30 days.
+            db.execute(
+                """CREATE TABLE IF NOT EXISTS sms_trash (
+                     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                     address     TEXT NOT NULL,
+                     body        TEXT NOT NULL,
+                     date        INTEGER NOT NULL,
+                     date_sent   INTEGER NOT NULL DEFAULT 0,
+                     type        INTEGER NOT NULL,
+                     read        INTEGER NOT NULL DEFAULT 1,
+                     sub_id      INTEGER,
+                     origin      TEXT NOT NULL,
+                     deleted_at  INTEGER NOT NULL
+                   )""",
+            )
+            db.execute("CREATE INDEX IF NOT EXISTS idx_sms_trash_deleted ON sms_trash (deleted_at)")
             db.version = LATEST
         }
     }

@@ -76,13 +76,21 @@ private fun FullApp(runtime: NodeRuntime, resumeTick: Int, openRequest: OpenRequ
     var address by rememberSaveable { mutableStateOf("") }
     var draft by rememberSaveable { mutableStateOf("") }
     var composing by rememberSaveable { mutableStateOf(false) }
+    var trash by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(openRequest) {
         openRequest ?: return@LaunchedEffect
         tab = Tab.MESSAGES
+        trash = false
         threadId = openRequest.threadId
         address = openRequest.address
         draft = openRequest.draft
+    }
+
+    if (tab == Tab.MESSAGES && trash) {
+        BackHandler { trash = false }
+        Box(Modifier.fillMaxSize().safeDrawingPadding()) { RecycleBinScreen(runtime, onBack = { trash = false }) }
+        return
     }
 
     val open = threadId
@@ -102,6 +110,7 @@ private fun FullApp(runtime: NodeRuntime, resumeTick: Int, openRequest: OpenRequ
         Box(Modifier.weight(1f).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)).consumeWindowInsets(WindowInsets.navigationBars)) {
             when (tab) {
                 Tab.MESSAGES -> InboxScreen(
+                    runtime,
                     resumeTick,
                     onOpen = { id, number ->
                         threadId = id
@@ -109,6 +118,7 @@ private fun FullApp(runtime: NodeRuntime, resumeTick: Int, openRequest: OpenRequ
                         draft = ""
                     },
                     onNew = { composing = true },
+                    onOpenTrash = { trash = true },
                 )
                 Tab.FORWARD -> ForwardingScreens(runtime, resumeTick)
             }

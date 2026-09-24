@@ -11,8 +11,16 @@ import android.util.Log
 import app.nya.smsforward.node.inbox.SmsStore
 import app.nya.smsforward.node.net.SimInfo
 
-/** [SmsBox] on the system SMS provider. Every read needs READ_SMS; without it the box simply looks empty. */
-class AndroidSmsBox(context: Context, private val sims: () -> List<SimInfo>) : SmsBox {
+/**
+ * [SmsBox] on the system SMS provider. Every read needs READ_SMS; without it the box simply looks empty.
+ *
+ * [recycle] (full edition) moves a matched message to the phone's recycle bin instead of deleting it for good.
+ */
+class AndroidSmsBox(
+    context: Context,
+    private val sims: () -> List<SimInfo>,
+    private val recycle: ((providerId: Long) -> Boolean)? = null,
+) : SmsBox {
     private val app = context.applicationContext
 
     fun canRead(): Boolean = app.checkSelfPermission(Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
@@ -69,6 +77,9 @@ class AndroidSmsBox(context: Context, private val sims: () -> List<SimInfo>) : S
             if (match == null) {
                 Log.w(TAG, "SMS delete no match: id=${request.messageId}, direction=${request.direction}, peer=${request.peer}, candidates=${candidates.size}")
                 DeleteReport(DeleteOutcome.NOT_FOUND, if (candidates.isEmpty()) "no_candidates" else "no_match")
+            } else if (recycle != null && isDefaultSmsApp() && recycle(match.id)) {
+                Log.i(TAG, "SMS moved to the phone recycle bin: id=${request.messageId}, providerId=${match.id}")
+                DeleteReport(DeleteOutcome.DELETED, "recycled")
             } else if (app.contentResolver.delete(ContentUris.withAppendedId(uri, match.id), null, null) > 0) {
                 Log.i(TAG, "SMS delete succeeded: id=${request.messageId}, providerId=${match.id}, distance=${match.distance}, bodyRank=${match.bodyRank}")
                 DeleteReport(DeleteOutcome.DELETED)

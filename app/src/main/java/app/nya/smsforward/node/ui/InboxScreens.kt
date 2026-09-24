@@ -60,11 +60,14 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import app.nya.smsforward.node.data.SmsTrash
+import app.nya.smsforward.node.data.TrashedSms
 import app.nya.smsforward.node.inbox.ContactNames
 import app.nya.smsforward.node.inbox.ConversationSummary
 import app.nya.smsforward.node.inbox.Conversations
 import app.nya.smsforward.node.inbox.InboxNotifier
 import app.nya.smsforward.node.inbox.LocalSender
+import app.nya.smsforward.node.inbox.Recycler
 import app.nya.smsforward.node.inbox.SmsRow
 import app.nya.smsforward.node.inbox.SmsStore
 import app.nya.smsforward.node.net.SimInfo
@@ -117,7 +120,7 @@ private fun DefaultAppCard(onRequest: () -> Unit) {
 }
 
 @Composable
-fun InboxScreen(resumeTick: Int, onOpen: (threadId: Long, address: String) -> Unit, onNew: () -> Unit) {
+fun InboxScreen(runtime: NodeRuntime, resumeTick: Int, onOpen: (threadId: Long, address: String) -> Unit, onNew: () -> Unit, onOpenTrash: () -> Unit) {
     val context = LocalContext.current
     val store = remember { SmsStore(context) }
     val changes = rememberSmsChanges()
@@ -134,6 +137,8 @@ fun InboxScreen(resumeTick: Int, onOpen: (threadId: Long, address: String) -> Un
         value = withContext(Dispatchers.IO) { Conversations.group(store.recent()) }
     }
     var deleting by remember { mutableStateOf<ConversationSummary?>(null) }
+    // The recycle bin forgets what is older than 30 days whenever the inbox opens.
+    LaunchedEffect(Unit) { withContext(Dispatchers.IO) { runtime.recycler.purge() } }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize()) {
@@ -142,7 +147,10 @@ fun InboxScreen(resumeTick: Int, onOpen: (threadId: Long, address: String) -> Un
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text("短信", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
-                if (isDefault) FilledTonalButton(onClick = onNew) { Text("＋ 新短信") }
+                if (isDefault) {
+                    TextButton(onClick = onOpenTrash) { Text("回收站") }
+                    FilledTonalButton(onClick = onNew) { Text("＋ 新短信") }
+                }
             }
             if (!isDefault) DefaultAppCard { roleLauncher.launch(SmsStore.requestDefaultIntent(context)) }
             if (!canRead) {
@@ -173,11 +181,14 @@ fun InboxScreen(resumeTick: Int, onOpen: (threadId: Long, address: String) -> Un
         AlertDialog(
             onDismissRequest = { deleting = null },
             title = { Text("删除会话？") },
-            text = { Text("与 ${displayName(context, c.address)} 的全部短信会从手机上删除，无法恢复。平台上已上报的记录不受影响。") },
+            text = { Text("与 ${displayName(context, c.address)} 的全部短信会移到手机回收站，30 天内可以恢复。平台上已上报的记录不受影响。") },
             confirmButton = {
                 TextButton(onClick = {
                     deleting = null
-                    scope.launch(Dispatchers.IO) { store.deleteThread(c.threadId) }
+                    scope.launch(Dispatchers.IO) {
+                        val moved = runtime.recycler.recycleThread(c.threadId, Recycler.ORIGIN_APP)
+                        withContext(Dispatchers.Main) { Toast.makeText(context, "已将 $moved 条短信移到回收站", Toast.LENGTH_SHORT).show() }
+                    }
                 }) { Text("删除", color = MaterialTheme.colorScheme.error) }
             },
             dismissButton = { TextButton(onClick = { deleting = null }) { Text("取消") } },
@@ -318,7 +329,12 @@ fun ThreadScreen(runtime: NodeRuntime, threadId: Long, address: String, initialD
                             if (isDefault) {
                                 DropdownMenuItem(text = { Text("删除", color = MaterialTheme.colorScheme.error) }, onClick = {
                                     menuFor = null
-                                    scope.launch(Dispatchers.IO) { store.deleteMessage(row.id) }
+                                    scope.launch(Dispatchers.IO) {
+                                        val ok = runtime.recycler.recycle(row.id, Recycler.ORIGIN_APP)
+                                        withContext(Dispatchers.Main) {
+                                            Toast.makeText(context, if (ok) "已移到回收站" else "删除失败", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
                                 })
                             }
                         }
@@ -415,6 +431,84 @@ private fun Bubble(row: SmsRow, onLongClick: () -> Unit) {
             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
             style = MaterialTheme.typography.labelSmall,
             color = if (row.failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+/** The phone's recycle bin: what was deleted here or from the platform, restorable for 30 days. */
+@Composable
+fun RecycleBinScreen(runtime: NodeRuntime, onBack: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var reload by remember { mutableIntStateOf(0) }
+    val items by produceState(emptyList<TrashedSms>(), reload) {
+        value = withContext(Dispatchers.IO) { runtime.recycler.list() }
+    }
+    var confirmEmpty by remember { mutableStateOf(false) }
+    val now = System.currentTimeMillis()
+
+    fun act(block: () -> Boolean, done: String, failed: String = "操作失败") {
+        scope.launch(Dispatchers.IO) {
+            val ok = block()
+            withContext(Dispatchers.Main) {
+                Toast.makeText(context, if (ok) done else failed, Toast.LENGTH_SHORT).show()
+                reload++
+            }
+        }
+    }
+
+    Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Column(Modifier.fillMaxSize()) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                TextButton(onClick = onBack) { Text("‹ 返回", style = MaterialTheme.typography.titleMedium) }
+                Text("回收站", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+                if (items.isNotEmpty()) TextButton(onClick = { confirmEmpty = true }) { Text("清空", color = MaterialTheme.colorScheme.error) }
+            }
+            Text(
+                "删除的短信在这里保留 30 天，期间可以恢复到手机短信里；网页上“同时删除手机短信”删掉的也在这里。",
+                modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            if (items.isEmpty()) Text("回收站是空的", modifier = Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                items(items, key = { it.id }) { sms ->
+                    SectionCard(
+                        "${displayName(context, sms.address)} · ${if (sms.type == Telephony.Sms.MESSAGE_TYPE_INBOX) "收到" else "发出"} · ${shortTime(sms.date)}",
+                    ) {
+                        Text(sms.body, maxLines = 4, overflow = TextOverflow.Ellipsis)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                (if (sms.origin == Recycler.ORIGIN_PLATFORM) "网页删除" else "手机上删除") + " · 剩 ${SmsTrash.daysLeft(sms, now)} 天",
+                                modifier = Modifier.weight(1f),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            TextButton(onClick = { act({ runtime.recycler.deleteForever(sms.id) }, "已彻底删除") }) {
+                                Text("彻底删除", color = MaterialTheme.colorScheme.error)
+                            }
+                            FilledTonalButton(onClick = {
+                                act({ runtime.recycler.restore(sms.id) }, "已恢复", "恢复失败：需要仍是默认短信应用")
+                            }) { Text("恢复") }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if (confirmEmpty) {
+        AlertDialog(
+            onDismissRequest = { confirmEmpty = false },
+            title = { Text("清空回收站？") },
+            text = { Text("回收站里的 ${items.size} 条短信会被彻底删除，无法恢复。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmEmpty = false
+                    act({ runtime.recycler.empty() >= 0 }, "回收站已清空")
+                }) { Text("清空", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmEmpty = false }) { Text("取消") } },
         )
     }
 }

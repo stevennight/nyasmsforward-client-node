@@ -35,6 +35,28 @@ class SmsStore(context: Context) {
     fun thread(threadId: Long, limit: Int = 1000): List<SmsRow> =
         query("thread_id = ?", arrayOf(threadId.toString()), "date DESC LIMIT $limit").reversed()
 
+    fun row(id: Long): SmsRow? = query("_id = ?", arrayOf(id.toString()), "_id").firstOrNull()
+
+    /** The date_sent column, which the inbox list does not need (0 when unknown). */
+    fun dateSent(id: Long): Long = runCatching {
+        resolver.query(ContentUris.withAppendedId(Telephony.Sms.CONTENT_URI, id), arrayOf(Telephony.Sms.DATE_SENT), null, null, null)
+            ?.use { if (it.moveToFirst()) it.getLong(0) else 0L }
+    }.getOrNull() ?: 0L
+
+    /** Puts a message from the recycle bin back with its original time and state. */
+    fun insertRestored(address: String, body: String, date: Long, dateSent: Long, type: Int, read: Boolean, subId: Int?): Uri? = insert(
+        ContentValues().apply {
+            put(Telephony.Sms.ADDRESS, address)
+            put(Telephony.Sms.BODY, body)
+            put(Telephony.Sms.DATE, date)
+            put(Telephony.Sms.DATE_SENT, dateSent)
+            put(Telephony.Sms.TYPE, type)
+            put(Telephony.Sms.READ, if (read) 1 else 0)
+            put(Telephony.Sms.SEEN, 1)
+            if (subId != null) put(Telephony.Sms.SUBSCRIPTION_ID, subId)
+        },
+    )
+
     /** The provider's thread for a number; creates it when needed (only the default app can create one). */
     fun threadIdFor(address: String): Long =
         runCatching { Telephony.Threads.getOrCreateThreadId(app, address) }.getOrDefault(0L)
@@ -90,9 +112,6 @@ class SmsStore(context: Context) {
 
     /** Returns how many rows went; 0 when the platform refused (not the default app). */
     fun deleteMessage(id: Long): Int = write { resolver.delete(ContentUris.withAppendedId(Telephony.Sms.CONTENT_URI, id), null, null) } ?: 0
-
-    fun deleteThread(threadId: Long): Int =
-        write { resolver.delete(Telephony.Sms.CONTENT_URI, "thread_id = ?", arrayOf(threadId.toString())) } ?: 0
 
     private fun insert(values: ContentValues): Uri? = write { resolver.insert(Telephony.Sms.CONTENT_URI, values) }
 
