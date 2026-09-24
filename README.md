@@ -76,7 +76,7 @@ NyaSmsForward 由三个独立仓库组成，互不依赖代码，只通过服务
 # 在 nyasmsforward-server 仓库，用一个全新的空数据目录启动服务
 $env:NYASMS_LISTEN = "127.0.0.1:18081"; $env:NYASMS_DATA = "$env:TEMP\nsf-e2e"; go run ./cmd/server
 # 在本仓库
-$env:NYASMS_E2E_URL = "http://127.0.0.1:18081"; ./gradlew testDebugUnitTest --tests "*RealServerE2ETest"
+$env:NYASMS_E2E_URL = "http://127.0.0.1:18081"; ./gradlew testLiteDebugUnitTest --tests "*RealServerE2ETest"
 ```
 
 它会自己完成管理员设置、生成配对码，然后覆盖：配对、收信、拼接、上报、去重、吊销、重新配对、补传、改地址。另一个 `SendE2ETest`（同样受 `NYASMS_E2E_URL` 控制，可对同一台服务器连着跑）用一个“回环收发器”代替 SmsManager，覆盖真实 WebSocket 上的：回复走原来的卡、策略取较严者、手机本地策略拒绝服务器以为允许的新发、吊销后通道以 `4401` 关闭并停止重试。
@@ -88,13 +88,13 @@ $env:NYASMS_E2E_URL = "http://127.0.0.1:18081"; ./gradlew testDebugUnitTest --te
 需要 JDK 17 和 Android SDK（`ANDROID_HOME`，含 platform 36）。
 
 ```powershell
-./gradlew testDebugUnitTest          # 单元测试
-./gradlew lint                       # Android Lint
-./gradlew assembleDebug              # app/build/outputs/apk/debug/app-debug.apk
+./gradlew testLiteDebugUnitTest testFullDebugUnitTest   # 单元测试（两个版本）
+./gradlew lintLiteDebug lintFullDebug                    # Android Lint
+./gradlew assembleDebug                                  # app/build/outputs/apk/{lite,full}/debug/*.apk
 ```
 
 - 版本号只在 `VERSION`（`MAJOR.MINOR.PATCH`）：`versionName` 取它，`versionCode = major*1000000 + minor*1000 + patch`。
-- 包名 `app.nya.smsforward.node`，`minSdk 26`，`compileSdk` / `targetSdk` 36。
+- 包名 `app.nya.smsforward.node`（完整版加后缀 `.full`），`minSdk 26`，`compileSdk` / `targetSdk` 36。
 
 ## 发布
 
