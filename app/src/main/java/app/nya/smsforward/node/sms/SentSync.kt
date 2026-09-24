@@ -33,6 +33,9 @@ data class DeleteSms(
 
 enum class DeleteOutcome(val wire: String) { DELETED("deleted"), NOT_FOUND("not_found"), DENIED("denied"), FAILED("failed") }
 
+/** Why a deletion ended the way it did; [reason] is one of the `delete_result.error` codes in docs/协议.md §6.2. */
+data class DeleteReport(val outcome: DeleteOutcome, val reason: String? = null)
+
 /** Read access to the SMS database (needs READ_SMS). The Android implementation is [app.nya.smsforward.node.sms.AndroidSmsBox]. */
 interface SmsBox {
     /** The highest `_id` in the sent box, or 0 when it is empty. */
@@ -48,7 +51,7 @@ interface SmsBox {
     fun sentSince(sinceMillis: Long, limit: Int): List<SystemSms>
 
     /** Best-effort removal from the system provider. Implementations may report DENIED when not the default SMS app. */
-    fun delete(request: DeleteSms): DeleteOutcome = DeleteOutcome.FAILED
+    fun delete(request: DeleteSms): DeleteReport = DeleteReport(DeleteOutcome.FAILED, "unsupported")
 }
 
 /**

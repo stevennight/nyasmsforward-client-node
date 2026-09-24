@@ -54,7 +54,12 @@ class FramesTest {
     fun `a delete_sms frame keeps the provider matching fields`() {
         val frame = Frames.parse("""{"type":"delete_sms","messageId":42,"direction":"in","peer":"106901234","body":"code","deviceTime":1789830000000,"simSlot":1}""")
         assertEquals(ServerFrame.DeleteSms(DeleteSms(42, "in", "106901234", "code", 1789830000000, 1)), frame)
-        assertTrue(""""type":"delete_result"""" in Frames.deleteResult(DeleteSms(42, "in", "106901234", "code", 1), app.nya.smsforward.node.sms.DeleteOutcome.DELETED))
+        assertTrue(""""type":"delete_result"""" in Frames.deleteResult(DeleteSms(42, "in", "106901234", "code", 1), app.nya.smsforward.node.sms.DeleteReport(app.nya.smsforward.node.sms.DeleteOutcome.DELETED)))
+        val denied = Frames.deleteResult(
+            DeleteSms(42, "in", "106901234", "code", 1),
+            app.nya.smsforward.node.sms.DeleteReport(app.nya.smsforward.node.sms.DeleteOutcome.DENIED, "not_default_sms_app"),
+        )
+        assertTrue(""""status":"denied"""" in denied && """"error":"not_default_sms_app"""" in denied)
     }
 
     @Test

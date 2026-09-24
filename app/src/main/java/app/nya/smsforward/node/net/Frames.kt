@@ -4,7 +4,7 @@ import app.nya.smsforward.node.send.SendReceipt
 import app.nya.smsforward.node.send.SendTask
 import app.nya.smsforward.node.send.TaskMode
 import app.nya.smsforward.node.sms.DeleteSms
-import app.nya.smsforward.node.sms.DeleteOutcome
+import app.nya.smsforward.node.sms.DeleteReport
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 
@@ -82,8 +82,8 @@ object Frames {
     fun result(receipt: SendReceipt): String =
         json.encodeToString(SendResultFrame.serializer(), SendResultFrame(receipt.taskId, receipt.status.wire, receipt.error))
 
-    fun deleteResult(request: DeleteSms, outcome: DeleteOutcome): String =
-        json.encodeToString(DeleteResultFrame.serializer(), DeleteResultFrame(request.messageId, outcome.wire))
+    fun deleteResult(request: DeleteSms, report: DeleteReport): String =
+        json.encodeToString(DeleteResultFrame.serializer(), DeleteResultFrame(request.messageId, report.outcome.wire, report.reason))
 
     fun parse(text: String): ServerFrame {
 		val kind = runCatching { json.decodeFromString(DeleteSmsFrame.serializer(), text) }.getOrNull()
