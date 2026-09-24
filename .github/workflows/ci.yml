@@ -35,15 +35,15 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
 
-      - name: Lint, unit test and assemble debug APK
+      - name: Lint, unit test and assemble debug APKs (lite + full)
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon lint testDebugUnitTest assembleDebug
+          ./gradlew --no-daemon lintLiteDebug lintFullDebug testLiteDebugUnitTest testFullDebugUnitTest assembleDebug
 
-      - name: Upload debug APK
+      - name: Upload debug APKs
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: nyasmsforward-node-debug-${{ github.run_number }}
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/*/debug/*.apk
           if-no-files-found: error
           retention-days: 14

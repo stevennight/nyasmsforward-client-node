@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.core.content.FileProvider
+import app.nya.smsforward.node.BuildConfig
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
 import okhttp3.OkHttpClient
@@ -85,7 +86,7 @@ object NodeUpdater {
             if (latest <= current) return UpdateCheck.UpToDate(currentVersion)
 
             val version = latest.text
-            val apkName = "NyaSmsForward-Node_${version}.apk"
+            val apkName = "${BuildConfig.APK_NAME_PREFIX}_${version}.apk" // each edition updates only to its own APK
             val checksumName = "$apkName.sha256"
             val apk = release.assets.singleOrNull { it.name == apkName }
                 ?: return UpdateCheck.Failed("最新 Release 没有兼容的 APK：$apkName")

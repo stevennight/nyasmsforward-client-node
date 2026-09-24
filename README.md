@@ -4,6 +4,20 @@ NyaSmsForward 的**接收端**（Android，Kotlin + Jetpack Compose）：装在�
 
 > 你平时用来看短信、回复短信的主力手机装的是 `nyasmsforward-client`，不是这个 App。
 
+## 两个版本
+
+同一套代码打出两个安装包（Gradle flavor `lite` / `full`），包名不同，可以同时安装，按需选一个：
+
+| | 普通版 `NyaSmsForward-Node_<版本>.apk` | 完整版 `NyaSmsForward-Node-Full_<版本>.apk` |
+|---|---|---|
+| 包名 | `app.nya.smsforward.node`（原有安装原地升级） | `app.nya.smsforward.node.full` |
+| 转发、下发、同步 | ✓ | ✓（「转发」标签页，功能相同） |
+| 手机上收发短信、会话列表 | — | ✓（「短信」标签页） |
+| 验证码识别、通知里一键复制 | — | ✓（规则与服务端 `sms/code.go` 相同） |
+| 平台“同时删除手机短信” | ✗ 系统不允许 | ✓ 设为默认短信应用后生效 |
+
+Android 4.4 起只有**默认短信应用**能写短信库，普通 App 的删除会被系统静默忽略（服务端审计日志会记成 `denied:not_default_sms_app`）。完整版实现了成为默认短信应用所需的组件（`SMS_DELIVER` / `WAP_PUSH_DELIVER` 接收器、来电“短信回复”服务、`SENDTO` 入口），设为默认后由它负责把收到和发出的短信写入短信库。彩信暂不支持显示，只提示“收到一条彩信”。
+
 ## 仓库关系
 
 NyaSmsForward 由三个独立仓库组成，互不依赖代码，只通过服务端仓库的 `docs/协议.md` 对接：
@@ -84,7 +98,7 @@ $env:NYASMS_E2E_URL = "http://127.0.0.1:18081"; ./gradlew testDebugUnitTest --te
 
 ## 发布
 
-推送与 `VERSION` 匹配的标签（如 `v0.1.0`）后，`release` 工作流会校验版本、跑 lint 和单元测试、用仓库 secrets 里的 keystore 签名构建 `assembleRelease`，核验签名后把 `NyaSmsForward-Node_<版本>.apk` 和 `.sha256` 上传到 GitHub Release。需要配置的仓库 secrets：
+推送与 `VERSION` 匹配的标签（如 `v0.1.0`）后，`release` 工作流会校验版本、跑 lint 和单元测试、用仓库 secrets 里的 keystore 签名构建 `assembleRelease`，核验签名后把普通版 `NyaSmsForward-Node_<版本>.apk`、完整版 `NyaSmsForward-Node-Full_<版本>.apk` 及各自的 `.sha256` 上传到 GitHub Release。需要配置的仓库 secrets：
 
 ```text
 ANDROID_KEYSTORE_BASE64    keystore 文件的 base64

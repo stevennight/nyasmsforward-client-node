@@ -51,7 +51,7 @@ jobs:
       - name: Verify source
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon lint testDebugUnitTest
+          ./gradlew --no-daemon lintLiteDebug lintFullDebug testLiteDebugUnitTest testFullDebugUnitTest
 
       - name: Restore Android signing key
         run: |
@@ -65,21 +65,24 @@ jobs:
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
           echo "ANDROID_KEYSTORE_FILE=$keystore_path" >> "$GITHUB_ENV"
 
-      - name: Build signed release APK
+      - name: Build signed release APKs (lite + full)
         run: ./gradlew --no-daemon assembleRelease
 
       - name: Verify APK signature and collect release files
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          apk=app/build/outputs/apk/release/app-release.apk
-          test -f "$apk" || { echo "Signed APK was not produced (is the keystore configured?)" >&2; exit 1; }
           apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)"
-          "$apksigner" verify --print-certs "$apk"
           mkdir -p dist
-          out="dist/NyaSmsForward-Node_${VERSION}.apk"
-          cp "$apk" "$out"
-          (cd dist && sha256sum "$(basename "$out")" > "$(basename "$out").sha256")
+          # The lite APK keeps the original name so installed lite apps keep finding their updates.
+          for edition in lite full; do
+            apk="app/build/outputs/apk/${edition}/release/app-${edition}-release.apk"
+            test -f "$apk" || { echo "Signed $edition APK was not produced (is the keystore configured?)" >&2; exit 1; }
+            "$apksigner" verify --print-certs "$apk"
+            if [ "$edition" = lite ]; then name="NyaSmsForward-Node_${VERSION}.apk"; else name="NyaSmsForward-Node-Full_${VERSION}.apk"; fi
+            cp "$apk" "dist/$name"
+            (cd dist && sha256sum "$name" > "$name.sha256")
+          done
 
       - name: Publish GitHub release
         uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2

@@ -8,6 +8,7 @@ import android.database.Cursor
 import android.net.Uri
 import android.provider.Telephony
 import android.util.Log
+import app.nya.smsforward.node.inbox.SmsStore
 import app.nya.smsforward.node.net.SimInfo
 
 /** [SmsBox] on the system SMS provider. Every read needs READ_SMS; without it the box simply looks empty. */
@@ -29,7 +30,7 @@ class AndroidSmsBox(context: Context, private val sims: () -> List<SimInfo>) : S
         read(Telephony.Sms.Sent.CONTENT_URI, "date >= ?", arrayOf(sinceMillis.toString()), "date ASC LIMIT $limit", useSentTime = false)
 
     /** Since Android 4.4 only the default SMS app may write the provider; for anyone else a delete silently removes nothing. */
-    fun isDefaultSmsApp(): Boolean = Telephony.Sms.getDefaultSmsPackage(app) == app.packageName
+    fun isDefaultSmsApp(): Boolean = SmsStore.isDefaultSmsApp(app)
 
     override fun delete(request: DeleteSms): DeleteReport {
         if (!canRead()) return DeleteReport(DeleteOutcome.DENIED, "no_read_permission")

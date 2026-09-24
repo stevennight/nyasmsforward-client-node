@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The full edition: everything the lite edition does, plus what Android requires of a default SMS app (the SMS_DELIVER /
+  WAP_PUSH_DELIVER receivers, the "respond via message" service and a SENDTO activity). Only the default SMS app may
+  write to the SMS database, which is what deleting a message from the phone needs.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- MMS arrives by WAP push; a default SMS app must accept it. -->
+    <uses-permission android:name="android.permission.RECEIVE_MMS" />
+    <uses-permission android:name="android.permission.RECEIVE_WAP_PUSH" />
+    <!-- Optional: show contact names instead of bare numbers in the inbox. -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
+
+    <application>
+        <activity android:name=".MainActivity" android:exported="true" tools:node="merge">
+            <!-- Other apps' "send SMS to …" (dialer, contacts, browser links) opens the conversation here. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SENDTO" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="sms" />
+                <data android:scheme="smsto" />
+                <data android:scheme="mms" />
+                <data android:scheme="mmsto" />
+            </intent-filter>
+        </activity>
+
+        <!-- SMS_DELIVER: only the system can send it (BROADCAST_SMS), and only to the default SMS app. -->
+        <receiver
+            android:name=".inbox.SmsDeliverReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter>
+                <action android:name="android.provider.Telephony.SMS_DELIVER" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".inbox.MmsDeliverReceiver"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_WAP_PUSH">
+            <intent-filter>
+                <action android:name="android.provider.Telephony.WAP_PUSH_DELIVER" />
+                <data android:mimeType="application/vnd.wap.mms-message" />
+            </intent-filter>
+        </receiver>
+
+        <service
+            android:name=".inbox.RespondViaMessageService"
+            android:exported="true"
+            android:permission="android.permission.SEND_RESPOND_VIA_MESSAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.RESPOND_VIA_MESSAGE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="sms" />
+                <data android:scheme="smsto" />
+                <data android:scheme="mms" />
+                <data android:scheme="mmsto" />
+            </intent-filter>
+        </service>
+
+        <!-- Radio results of messages typed in the app, and the notification buttons. Not exported. -->
+        <receiver android:name=".inbox.LocalSendReceiver" android:exported="false" />
+        <receiver android:name=".inbox.InboxActionReceiver" android:exported="false" />
+    </application>
+</manifest>

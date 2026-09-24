@@ -1,5 +1,6 @@
 package app.nya.smsforward.node.service
 
+import android.annotation.SuppressLint
 import android.app.Service
 import android.content.Context
 import android.content.Intent
@@ -19,6 +20,9 @@ import app.nya.smsforward.node.node.channelWanted
 class NodeService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
+    // The manifest declares foregroundServiceType="specialUse" (see the merged manifest); lint misses it in the full
+    // edition, whose flavor manifest adds a <service> of its own.
+    @SuppressLint("ForegroundServiceType")
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val runtime = NodeRuntime.get(this)
         // A foreground service must post its notification within seconds of being started, even if it is about to stop.

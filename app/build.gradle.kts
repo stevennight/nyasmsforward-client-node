@@ -22,6 +22,24 @@ android {
         versionCode = versionParts[0] * 1_000_000 + versionParts[1] * 1_000 + versionParts[2]
     }
 
+    // Two editions from one codebase (docs/版本.md). "lite" is the forwarding receiver and keeps the original package, so
+    // existing installs update in place. "full" is a separate app that can also be the phone's default SMS app, which
+    // Android requires before anything may write (e.g. delete from) the SMS database.
+    flavorDimensions += "edition"
+    productFlavors {
+        create("lite") {
+            dimension = "edition"
+            buildConfigField("boolean", "FULL_EDITION", "false")
+            buildConfigField("String", "APK_NAME_PREFIX", "\"NyaSmsForward-Node\"")
+        }
+        create("full") {
+            dimension = "edition"
+            applicationIdSuffix = ".full"
+            buildConfigField("boolean", "FULL_EDITION", "true")
+            buildConfigField("String", "APK_NAME_PREFIX", "\"NyaSmsForward-Node-Full\"")
+        }
+    }
+
     // Release signing comes from the environment (the release workflow restores the keystore from a secret).
     // Without it `assembleRelease` still works and produces an unsigned APK.
     val keystoreFile = System.getenv("ANDROID_KEYSTORE_FILE")
