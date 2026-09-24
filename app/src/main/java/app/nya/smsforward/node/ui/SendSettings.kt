@@ -42,9 +42,6 @@ import app.nya.smsforward.node.sms.PeerKey
 
 private val LIMITS = listOf(5, 10, 20, 50)
 
-private fun granted(context: Context, permission: String) =
-    ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
-
 /** What the phone will do when the platform asks it to send an SMS. Off by default; only changeable here. */
 @Composable
 fun SendSettingsCard(state: UiState, runtime: NodeRuntime, resumeTick: Int) {
@@ -202,43 +199,6 @@ private fun BatteryHint(resumeTick: Int) {
             context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
         }
     }) { Text("允许不受电池优化限制") }
-}
-
-/** One line for the status screen: is sending on, and is the channel up. */
-@Composable
-fun SendStatusCard(state: UiState, onOpenSettings: () -> Unit) {
-    SectionCard("下发") {
-        val policy = when (state.sendPolicy) {
-            SendPolicy.OFF -> "关闭"
-            SendPolicy.REPLY -> "仅回复"
-            SendPolicy.ANY -> "允许新发"
-        }
-        Text("策略：$policy", fontWeight = FontWeight.SemiBold)
-        if (state.sendPolicy == SendPolicy.OFF) {
-            Text("平台无法让这台手机发短信。需要在网页 / 客户端里回复短信时，到设置里开启。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } else {
-            val (text, bad) = when (val c = state.channel) {
-                ChannelState.Connected -> "下发通道已连接" to false
-                ChannelState.Connecting -> "正在连接下发通道…" to false
-                ChannelState.Idle -> "下发通道未运行" to true
-                ChannelState.NeedsPairing -> "令牌已失效，需要重新配对" to true
-                is ChannelState.Waiting -> "${c.reason}，${c.retryInMs / 1000} 秒后重试" to true
-            }
-            Text(text, color = if (bad) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary)
-            state.sendTasks.forEach { t ->
-                Text(
-                    "${formatTime(t.updatedAt)} · ${t.recipient} · ${when (t.state) {
-                        app.nya.smsforward.node.data.LedgerState.SENDING -> "发送中"
-                        app.nya.smsforward.node.data.LedgerState.SENT -> "已发送"
-                        app.nya.smsforward.node.data.LedgerState.DELIVERED -> "已送达"
-                        app.nya.smsforward.node.data.LedgerState.FAILED -> "失败${t.error?.let { "（$it）" }.orEmpty()}"
-                    }}",
-                    style = MaterialTheme.typography.bodySmall,
-                )
-            }
-        }
-        OutlinedButton(onClick = onOpenSettings) { Text("下发设置") }
-    }
 }
 
 private val HISTORY_CHOICES = listOf(0 to "不回补", 7 to "最近 7 天", 30 to "最近 30 天")

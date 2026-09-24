@@ -1,309 +1,199 @@
 package app.nya.smsforward.node.ui
 
 import android.Manifest
-import android.content.Context
-import android.content.Intent
-import android.content.pm.PackageManager
-import android.net.Uri
-import android.os.Build
-import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
-import app.nya.smsforward.node.BuildConfig
 import app.nya.smsforward.node.data.OutboxState
 import app.nya.smsforward.node.data.RecentItem
+import app.nya.smsforward.node.net.ChannelState
 import app.nya.smsforward.node.node.NodeRuntime
 import app.nya.smsforward.node.node.UiState
-import app.nya.smsforward.node.update.InstallResult
-import app.nya.smsforward.node.update.NodeUpdater
-import app.nya.smsforward.node.update.UpdateCheck
+import app.nya.smsforward.node.policy.SendPolicy
 import app.nya.smsforward.node.work.UploadScheduler
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
-private data class Perm(val permission: String, val title: String, val hint: String, val required: Boolean)
-
-private fun permissions(): List<Perm> = buildList {
-    add(Perm(Manifest.permission.RECEIVE_SMS, "接收短信", "必需。没有它就收不到任何短信。", true))
-    add(Perm(Manifest.permission.READ_PHONE_STATE, "读取 SIM 信息", "可选。显示卡 1 / 卡 2 的运营商名称。", false))
-    add(Perm(Manifest.permission.READ_PHONE_NUMBERS, "读取本机号码", "可选。用于在换卡槽后仍按正确的号码发送。", false))
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        add(Perm(Manifest.permission.POST_NOTIFICATIONS, "通知", "可选。令牌失效需要重新配对时提醒你。", false))
-    }
-}
-
-private fun granted(context: Context, permission: String) =
-    ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
-
+/**
+ * The forwarding home: is this phone reporting (one big card), what needs fixing (only when something does), and what
+ * arrived recently. Permissions, SIM details and updates live in the settings.
+ */
 @Composable
 fun StatusScreen(state: UiState, runtime: NodeRuntime, resumeTick: Int, onOpenSettings: () -> Unit) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    // resumeTick changes whenever the app returns to the foreground, e.g. from the system permission screen.
-    var checked by remember(resumeTick) { mutableStateOf(permissions().associate { it.permission to granted(context, it.permission) }) }
+    var smsGranted by remember(resumeTick) { mutableStateOf(granted(context, Manifest.permission.RECEIVE_SMS)) }
     val request = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { result ->
-        checked = checked + result
-    }
-    val missing = permissions().filter { checked[it.permission] != true }
-    val smsGranted = checked[Manifest.permission.RECEIVE_SMS] == true
-    var update by remember { mutableStateOf<UpdateCheck>(UpdateCheck.Idle) }
-    var installNote by remember { mutableStateOf<String?>(null) }
-
-    fun checkForUpdates() {
-        if (update is UpdateCheck.Checking) return
-        installNote = null
-        update = UpdateCheck.Checking
-        scope.launch {
-            update = withContext(Dispatchers.IO) { NodeUpdater.check(BuildConfig.VERSION_NAME) }
-        }
+        smsGranted = result[Manifest.permission.RECEIVE_SMS] ?: smsGranted
     }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
-        Column(
-            modifier = Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Text("●", color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.titleLarge)
-                Text("NyaSmsForward 接收端", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+        Column(Modifier.safeDrawingPadding().verticalScroll(rememberScrollState())) {
+            NyaTopBar("短信转发") {
+                IconButton(onClick = onOpenSettings) { Icon(Icons.Filled.Settings, contentDescription = "设置") }
             }
+            Column(Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                StatusHero(state, smsGranted, onSync = { UploadScheduler.enqueue(context) })
 
-            SectionCard("连接状态") {
-                Text("已连接 ${state.serverUrl?.removePrefix("https://")?.removePrefix("http://").orEmpty()}", fontWeight = FontWeight.SemiBold)
-                Text(
-                    "${state.deviceName.orEmpty()} · 登录令牌长期有效",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                Text("待上报 ${state.pending} 条 · 上次上报 ${formatTime(state.lastUploadAt)}")
-                state.lastError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { UploadScheduler.enqueue(context) }) { Text("立即同步") }
-                    OutlinedButton(onClick = onOpenSettings) { Text("连接设置") }
-                }
-            }
-
-            SendStatusCard(state, onOpenSettings)
-
-            SectionCard("应用更新") {
-                when (val result = update) {
-                    UpdateCheck.Idle -> Text("可手动检查 GitHub Release 中的最新接收端 APK。")
-                    UpdateCheck.Checking -> Text("正在检查 NyaSmsForward 接收端更新…")
-                    is UpdateCheck.UpToDate -> Text("当前已是最新版本 v${result.currentVersion}")
-                    is UpdateCheck.Failed -> Text(result.message, color = MaterialTheme.colorScheme.error)
-                    is UpdateCheck.Available -> {
-                        Text("发现新版本 v${result.update.version}", fontWeight = FontWeight.SemiBold)
-                        if (result.update.releaseNotes.isNotBlank()) {
-                            Text(
-                                result.update.releaseNotes,
-                                maxLines = 5,
-                                overflow = TextOverflow.Ellipsis,
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(
-                                enabled = installNote == null,
-                                onClick = {
-                                    installNote = "正在下载并校验 APK…"
-                                    scope.launch {
-                                        val install = withContext(Dispatchers.IO) {
-                                            NodeUpdater.downloadAndInstall(context, result.update)
-                                        }
-                                        installNote = when (install) {
-                                            InstallResult.Started -> "APK 已校验，已打开系统安装确认。"
-                                            InstallResult.PermissionRequired -> "请允许本应用安装未知来源应用，然后再次点击安装。"
-                                            is InstallResult.Failed -> install.message
-                                        }
-                                    }
-                                },
-                            ) { Text("下载并安装") }
-                            OutlinedButton(onClick = { checkForUpdates() }) { Text("重新检查") }
-                        }
-                    }
-                }
-                installNote?.let {
-                    Text(
-                        it,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = if (it.contains("失败") || it.contains("允许")) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                if (update !is UpdateCheck.Available && update !is UpdateCheck.Checking) {
-                    OutlinedButton(onClick = { checkForUpdates() }) { Text("检查更新") }
-                }
-            }
-
-            SectionCard("权限") {
-                for (p in permissions()) {
-                    val ok = checked[p.permission] == true
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(p.title, fontWeight = FontWeight.Medium)
-                            Text(p.hint, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Text(
-                            if (ok) "已授权" else if (p.required) "未授权" else "未开启",
-                            color = if (ok) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                        )
-                    }
-                }
-                if (missing.isNotEmpty()) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Button(onClick = { request.launch(missing.map { it.permission }.toTypedArray()) }) { Text("授予权限") }
-                        OutlinedButton(onClick = {
-                            context.startActivity(
-                                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", context.packageName, null)),
-                            )
-                        }) { Text("应用设置") }
-                    }
-                }
                 if (!smsGranted) {
-                    Text(
-                        "如果点“授予权限”没有弹窗，或系统提示“受限制的设置”：到「应用设置」右上角 ⋮ 选择“允许受限制的设置”，再回来授予。" +
-                            "国产系统还可能需要在“权限管理”里单独允许“读取 / 接收短信”，以及“通知类短信”。",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-            }
-
-            SectionCard("SIM 信息（仅本机显示）") {
-                if (state.sims.isEmpty()) {
-                    Text(
-                        "系统没有向本应用提供可见的 SIM 信息。请确认“读取 SIM 信息”已授权；授权后返回此页会自动刷新。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    Text(
-                        "这是 Android 当前返回给本应用的数据；号码仅在本机脱敏显示，用于判断是否成功读取。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    state.sims.forEach { sim ->
-                        SimDiagnosticRow(
-                            sim = sim,
-                            manualNumber = state.manualSimNumbers[sim.slot].orEmpty(),
-                            runtime = runtime,
-                        )
+                    Banner(Tone.BAD, Icons.Filled.Warning, "没有“接收短信”权限，收不到任何短信。") {
+                        TextButton(onClick = { request.launch(permissions().map { it.permission }.toTypedArray()) }) { Text("授予") }
                     }
                 }
-            }
+                state.lastError?.let { Banner(Tone.WARN, Icons.Filled.Warning, it) }
 
-            SectionCard("最近收到的短信") {
-                if (state.recent.isEmpty()) {
-                    Text("还没有短信。收到后会在这里显示，并自动上报。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                SendSummary(state, onOpenSettings)
+
+                SectionCard("最近收到", icon = Icons.Filled.Email) {
+                    if (state.recent.isEmpty()) {
+                        Text("还没有短信。收到后会显示在这里，并自动上报。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    state.recent.forEachIndexed { i, item ->
+                        if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                        RecentRow(item)
+                    }
                 }
-                state.recent.forEach { RecentRow(it) }
             }
         }
     }
 }
 
-private fun maskPhoneNumber(number: String): String =
-    if (number.length <= 7) number else number.take(3) + "****" + number.takeLast(4)
-
+/** The one card that answers "is it working?". */
 @Composable
-private fun SimDiagnosticRow(sim: app.nya.smsforward.node.net.SimInfo, manualNumber: String, runtime: NodeRuntime) {
-    var draft by remember(sim.slot, manualNumber) { mutableStateOf(manualNumber) }
-    var message by remember(sim.slot) { mutableStateOf<String?>(null) }
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Text("SIM${sim.slot}", fontWeight = FontWeight.Medium)
-        Text(
-            "订阅 ID：${sim.subscriptionId?.toString() ?: "未提供"} · 运营商：${sim.label ?: "未提供"}",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Text(
-            "当前上报号码：${sim.number?.let(::maskPhoneNumber) ?: "系统未提供"}",
-            style = MaterialTheme.typography.bodySmall,
-            color = if (sim.number == null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
-        )
-        OutlinedTextField(
-            value = draft,
-            onValueChange = { draft = it; message = null },
-            label = { Text("手动设置 SIM${sim.slot} 号码（可选）") },
-            placeholder = { Text("例如 13800138000") },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = { message = runtime.setManualSimNumber(sim.slot, draft) ?: "已保存；下次连接会按这个号码上报" }) {
-                Text("保存并上报")
-            }
-            if (manualNumber.isNotEmpty()) {
-                OutlinedButton(onClick = { draft = ""; message = runtime.setManualSimNumber(sim.slot, "") ?: "已清除手动号码" }) {
-                    Text("清除")
+private fun StatusHero(state: UiState, smsGranted: Boolean, onSync: () -> Unit) {
+    val healthy = smsGranted && state.lastError == null
+    val host = state.serverUrl?.removePrefix("https://")?.removePrefix("http://")?.trimEnd('/').orEmpty()
+    Surface(color = MaterialTheme.colorScheme.primary, shape = RoundedCornerShape(22.dp), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Box(Modifier.size(44.dp).background(Color.White.copy(alpha = .18f), CircleShape), contentAlignment = Alignment.Center) {
+                    Icon(if (healthy) Icons.Filled.CheckCircle else Icons.Filled.Warning, contentDescription = null, tint = Color.White)
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        if (healthy) "正在转发" else "需要处理",
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleLarge,
+                    )
+                    Text(
+                        listOf(state.deviceName.orEmpty(), host).filter { it.isNotBlank() }.joinToString(" · "),
+                        color = Color.White.copy(alpha = .8f),
+                        style = MaterialTheme.typography.bodySmall,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                HeroStat("待上报", "${state.pending} 条", Modifier.weight(1f))
+                HeroStat("上次上报", formatTime(state.lastUploadAt), Modifier.weight(1f))
+            }
+            FilledTonalButton(onClick = onSync, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Filled.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                Text("  立即同步")
+            }
         }
-        message?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+    }
+}
+
+@Composable
+private fun HeroStat(label: String, value: String, modifier: Modifier) {
+    Column(modifier.background(Color.White.copy(alpha = .14f), RoundedCornerShape(14.dp)).padding(horizontal = 14.dp, vertical = 10.dp)) {
+        Text(label, color = Color.White.copy(alpha = .8f), style = MaterialTheme.typography.labelSmall)
+        Text(value, color = Color.White, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+    }
+}
+
+/** Sending in one line; the details and the switch are in the settings. */
+@Composable
+private fun SendSummary(state: UiState, onOpenSettings: () -> Unit) {
+    val policy = when (state.sendPolicy) {
+        SendPolicy.OFF -> "关闭"
+        SendPolicy.REPLY -> "仅回复"
+        SendPolicy.ANY -> "允许新发"
+    }
+    val (channel, tone) = when {
+        state.sendPolicy == SendPolicy.OFF -> "平台不能让这台手机发短信" to Tone.INFO
+        else -> when (val c = state.channel) {
+            ChannelState.Connected -> "下发通道已连接" to Tone.OK
+            ChannelState.Connecting -> "正在连接下发通道…" to Tone.INFO
+            ChannelState.Idle -> "下发通道未运行" to Tone.WARN
+            ChannelState.NeedsPairing -> "令牌已失效，需要重新配对" to Tone.BAD
+            is ChannelState.Waiting -> "${c.reason}，${c.retryInMs / 1000} 秒后重试" to Tone.WARN
+        }
+    }
+    SectionCard("代发短信", icon = Icons.AutoMirrored.Filled.Send) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Pill(policy, if (state.sendPolicy == SendPolicy.OFF) Tone.INFO else Tone.OK)
+            Text(channel, style = MaterialTheme.typography.bodyMedium, color = toneColors(tone).second, modifier = Modifier.weight(1f))
+            TextButton(onClick = onOpenSettings) { Text("设置") }
+        }
+        state.sendTasks.take(3).forEach { t ->
+            Text(
+                "${formatTime(t.updatedAt)} · ${t.recipient} · ${when (t.state) {
+                    app.nya.smsforward.node.data.LedgerState.SENDING -> "发送中"
+                    app.nya.smsforward.node.data.LedgerState.SENT -> "已发送"
+                    app.nya.smsforward.node.data.LedgerState.DELIVERED -> "已送达"
+                    app.nya.smsforward.node.data.LedgerState.FAILED -> "失败${t.error?.let { "（$it）" }.orEmpty()}"
+                }}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
 @Composable
 private fun RecentRow(item: RecentItem) {
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(item.peer, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            Text(
-                when (item.state) {
-                    OutboxState.PENDING -> "待上报"
-                    OutboxState.DONE -> "已上报"
-                    OutboxState.DEAD -> "被拒绝"
-                },
-                color = when (item.state) {
-                    OutboxState.DONE -> MaterialTheme.colorScheme.primary
-                    OutboxState.DEAD -> MaterialTheme.colorScheme.error
-                    OutboxState.PENDING -> MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                style = MaterialTheme.typography.labelMedium,
-            )
+    Row(Modifier.fillMaxWidth().padding(vertical = 2.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.weight(1f)) {
+            Text(item.peer, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(item.body, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (item.state == OutboxState.DEAD && item.error != null) {
+                Text("原因：${item.error}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            }
         }
-        Text(item.body, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        if (item.state == OutboxState.DEAD && item.error != null) {
-            Text("原因：${item.error}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+        when (item.state) {
+            OutboxState.PENDING -> Pill("待上报", Tone.WARN)
+            OutboxState.DONE -> Pill("已上报", Tone.OK)
+            OutboxState.DEAD -> Pill("被拒绝", Tone.BAD)
         }
-    }
-}
-
-@Preview(showBackground = true)
-@Composable
-private fun StatusPreview() {
-    NyaTheme {
-        val runtime = NodeRuntime.get(LocalContext.current)
-        StatusScreen(
-            UiState(serverUrl = "https://sms.example.com", deviceName = "Pixel 7", pending = 2, lastUploadAt = System.currentTimeMillis()),
-            runtime, resumeTick = 0, onOpenSettings = {},
-        )
     }
 }

@@ -24,3 +24,13 @@ class VerificationCodeTest {
         for ((body, want) in cases) assertEquals(want, VerificationCode.find(body), body)
     }
 }
+
+class SenderBrandTest {
+    @Test
+    fun `reads the bracketed sender name and nothing else`() {
+        assertEquals("中国移动", app.nya.smsforward.node.inbox.senderBrand("【中国移动】您本月话费账单"))
+        assertEquals("Bank", app.nya.smsforward.node.inbox.senderBrand("  [Bank] code 1234"))
+        assertEquals(null, app.nya.smsforward.node.inbox.senderBrand("你好【不是开头】"))
+        assertEquals(null, app.nya.smsforward.node.inbox.senderBrand("晚上吃饭吗"))
+    }
+}

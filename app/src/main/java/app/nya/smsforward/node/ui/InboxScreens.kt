@@ -30,7 +30,17 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -70,6 +80,7 @@ import app.nya.smsforward.node.inbox.LocalSender
 import app.nya.smsforward.node.inbox.Recycler
 import app.nya.smsforward.node.inbox.SmsRow
 import app.nya.smsforward.node.inbox.SmsStore
+import app.nya.smsforward.node.inbox.senderBrand
 import app.nya.smsforward.node.net.SimInfo
 import app.nya.smsforward.node.node.NodeRuntime
 import app.nya.smsforward.node.sms.PeerKey
@@ -140,16 +151,12 @@ fun InboxScreen(runtime: NodeRuntime, resumeTick: Int, onOpen: (threadId: Long, 
     // The recycle bin forgets what is older than 30 days whenever the inbox opens.
     LaunchedEffect(Unit) { withContext(Dispatchers.IO) { runtime.recycler.purge() } }
 
+    Box(Modifier.fillMaxSize()) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize()) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 12.dp, bottom = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text("短信", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.weight(1f))
+            NyaTopBar("短信") {
                 if (isDefault) {
-                    TextButton(onClick = onOpenTrash) { Text("回收站") }
-                    FilledTonalButton(onClick = onNew) { Text("＋ 新短信") }
+                    IconButton(onClick = onOpenTrash) { Icon(Icons.Filled.Delete, contentDescription = "回收站") }
                 }
             }
             if (!isDefault) DefaultAppCard { roleLauncher.launch(SmsStore.requestDefaultIntent(context)) }
@@ -167,13 +174,24 @@ fun InboxScreen(runtime: NodeRuntime, resumeTick: Int, onOpen: (threadId: Long, 
             if (canRead && conversations.isEmpty()) {
                 Text("还没有短信", modifier = Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            LazyColumn(contentPadding = PaddingValues(bottom = 16.dp)) {
+            LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
                 items(conversations, key = { "${it.threadId}:${it.address}" }) { c ->
                     ConversationRow(c, onClick = { onOpen(c.threadId, c.address) }, onLongClick = { if (isDefault) deleting = c })
-                    HorizontalDivider(Modifier.padding(start = 76.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = .5f))
+                    HorizontalDivider(Modifier.padding(start = 72.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = .6f))
                 }
             }
         }
+    }
+    if (isDefault) {
+        ExtendedFloatingActionButton(
+            onClick = onNew,
+            icon = { Icon(Icons.Filled.Edit, contentDescription = null) },
+            text = { Text("新短信") },
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary,
+            modifier = Modifier.align(Alignment.BottomEnd).padding(20.dp),
+        )
+    }
     }
 
     deleting?.let { c ->
@@ -199,36 +217,59 @@ fun InboxScreen(runtime: NodeRuntime, resumeTick: Int, onOpen: (threadId: Long, 
 private fun displayName(context: Context, address: String): String = ContactNames.lookup(context, address) ?: address
 
 @Composable
-private fun Avatar(label: String) {
+private fun Avatar(name: String, address: String, size: Int = 44) {
     val palette = listOf(Color(0xFF4964D8), Color(0xFF0E9384), Color(0xFFDC6803), Color(0xFF7A5AF8), Color(0xFFD92D20), Color(0xFF2E90FA))
+    val hasName = name != address && name.isNotBlank()
     Box(
-        modifier = Modifier.size(44.dp).background(palette[(label.hashCode() and 0x7fffffff) % palette.size], CircleShape),
+        modifier = Modifier.size(size.dp).background(palette[(name.hashCode() and 0x7fffffff) % palette.size], CircleShape),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label.trim().firstOrNull()?.uppercase() ?: "#", color = Color.White, fontWeight = FontWeight.Bold)
+        when {
+            hasName -> Text(name.trim().first().uppercase(), color = Color.White, fontWeight = FontWeight.Bold)
+            PeerKey.normalize(address).matches(Regex("1[3-9]\\d{9}")) ->
+                Icon(Icons.Filled.Person, contentDescription = null, tint = Color.White)
+            else -> Icon(Icons.Filled.Email, contentDescription = null, tint = Color.White, modifier = Modifier.size((size / 2).dp))
+        }
     }
 }
 
 @Composable
 private fun ConversationRow(c: ConversationSummary, onClick: () -> Unit, onLongClick: () -> Unit) {
     val context = LocalContext.current
-    val name = remember(c.address) { displayName(context, c.address) }
+    val contact = remember(c.address) { ContactNames.lookup(context, c.address) }
+    val name = contact ?: senderBrand(c.last.body) ?: c.address
     Row(
         modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Avatar(name)
+        Avatar(name, c.address)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
                     name,
-                    modifier = Modifier.weight(1f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    fontWeight = if (c.unread > 0) FontWeight.Bold else FontWeight.SemiBold,
+                    fontWeight = if (c.unread > 0) FontWeight.ExtraBold else FontWeight.SemiBold,
                 )
-                Text(shortTime(c.last.date), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (name != c.address) {
+                    Text(
+                        "  " + c.address,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                } else {
+                    Spacer(Modifier.weight(1f))
+                }
+                Text(
+                    shortTime(c.last.date),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = if (c.unread > 0) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontWeight = if (c.unread > 0) FontWeight.Bold else null,
+                )
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 c.last.code?.let { CodeTag(it) }
@@ -273,7 +314,7 @@ fun ThreadScreen(runtime: NodeRuntime, threadId: Long, address: String, initialD
     val changes = rememberSmsChanges()
     val scope = rememberCoroutineScope()
     val isDefault = remember(changes) { store.isDefaultApp() }
-    val name = remember(address) { displayName(context, address) }
+    val contact = remember(address) { ContactNames.lookup(context, address) }
     val rows by produceState(emptyList<SmsRow>(), changes, threadId, address) {
         value = withContext(Dispatchers.IO) {
             val id = threadId.takeIf { it > 0 }
@@ -284,6 +325,7 @@ fun ThreadScreen(runtime: NodeRuntime, threadId: Long, address: String, initialD
     val sims by produceState(emptyList<SimInfo>()) {
         value = withContext(Dispatchers.IO) { SimSlots.activeSims(context, runtime.settings.manualSimNumbers) }
     }
+    val name = contact ?: rows.asReversed().firstNotNullOfOrNull { senderBrand(it.body) } ?: address
     var simChoice by rememberSaveable { mutableStateOf<Int?>(null) }
     val lastSub = rows.lastOrNull { it.incoming }?.subId ?: rows.lastOrNull()?.subId
     val sim = sims.firstOrNull { it.subscriptionId == (simChoice ?: lastSub) } ?: sims.firstOrNull()
@@ -301,16 +343,7 @@ fun ThreadScreen(runtime: NodeRuntime, threadId: Long, address: String, initialD
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize().imePadding()) {
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                TextButton(onClick = onBack) { Text("‹ 返回", style = MaterialTheme.typography.titleMedium) }
-                Column(Modifier.weight(1f)) {
-                    Text(name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (name != address) Text(address, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
+            NyaTopBar(name, onBack = onBack, subtitle = if (name != address) address else null)
             HorizontalDivider(color = MaterialTheme.colorScheme.outline)
             LazyColumn(
                 state = listState,
@@ -363,10 +396,11 @@ fun ThreadScreen(runtime: NodeRuntime, threadId: Long, address: String, initialD
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     if (sims.size > 1 && sim != null) {
-                        TextButton(onClick = {
-                            val next = sims[(sims.indexOf(sim) + 1) % sims.size]
-                            simChoice = next.subscriptionId
-                        }) { Text("卡${sim.slot}") }
+                        FilledTonalButton(
+                            onClick = { simChoice = sims[(sims.indexOf(sim) + 1) % sims.size].subscriptionId },
+                            contentPadding = PaddingValues(horizontal = 10.dp),
+                            modifier = Modifier.padding(bottom = 4.dp),
+                        ) { Text("卡${sim.slot}") }
                     }
                     OutlinedTextField(
                         value = draft,
@@ -374,10 +408,11 @@ fun ThreadScreen(runtime: NodeRuntime, threadId: Long, address: String, initialD
                         modifier = Modifier.weight(1f),
                         placeholder = { Text("短信") },
                         maxLines = 5,
-                        shape = RoundedCornerShape(20.dp),
+                        shape = RoundedCornerShape(24.dp),
                     )
-                    Button(
+                    FilledIconButton(
                         enabled = draft.isNotBlank(),
+                        modifier = Modifier.size(52.dp),
                         onClick = {
                             val text = draft.trim()
                             draft = ""
@@ -387,7 +422,7 @@ fun ThreadScreen(runtime: NodeRuntime, threadId: Long, address: String, initialD
                                 }
                             }
                         },
-                    ) { Text("发送") }
+                    ) { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = "发送") }
                 }
             }
         }
@@ -459,9 +494,7 @@ fun RecycleBinScreen(runtime: NodeRuntime, onBack: () -> Unit) {
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize()) {
-            Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onBack) { Text("‹ 返回", style = MaterialTheme.typography.titleMedium) }
-                Text("回收站", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+            NyaTopBar("回收站", onBack = onBack) {
                 if (items.isNotEmpty()) TextButton(onClick = { confirmEmpty = true }) { Text("清空", color = MaterialTheme.colorScheme.error) }
             }
             Text(

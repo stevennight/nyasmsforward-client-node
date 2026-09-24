@@ -51,14 +51,12 @@ fun SettingsScreen(state: UiState, runtime: NodeRuntime, resumeTick: Int, onBack
     var confirmDisconnect by remember { mutableStateOf(false) }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
+        Column(Modifier.safeDrawingPadding().verticalScroll(rememberScrollState())) {
+            NyaTopBar("设置", onBack = onBack)
         Column(
-            modifier = Modifier.safeDrawingPadding().verticalScroll(rememberScrollState()).padding(16.dp),
+            modifier = Modifier.padding(horizontal = 16.dp).padding(bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                TextButton(onClick = onBack) { Text("‹ 返回") }
-            }
-            Text("连接设置", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
 
             SectionCard("服务器地址") {
                 OutlinedTextField(
@@ -114,6 +112,12 @@ fun SettingsScreen(state: UiState, runtime: NodeRuntime, resumeTick: Int, onBack
 
             SentSyncCard(state, runtime, resumeTick)
 
+            PermissionsCard(resumeTick)
+
+            SimCard(state, runtime)
+
+            UpdateCard()
+
             SectionCard("这台手机") {
                 Text(state.deviceName.orEmpty(), fontWeight = FontWeight.SemiBold)
                 Text("登录令牌：长期有效，不会自动过期，加密保存在本机。", style = MaterialTheme.typography.bodySmall)
@@ -127,6 +131,7 @@ fun SettingsScreen(state: UiState, runtime: NodeRuntime, resumeTick: Int, onBack
                 )
                 OutlinedButton(onClick = { confirmDisconnect = true }) { Text("断开并清除令牌", color = MaterialTheme.colorScheme.error) }
             }
+        }
         }
     }
 

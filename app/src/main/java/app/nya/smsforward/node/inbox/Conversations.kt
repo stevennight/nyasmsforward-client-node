@@ -49,3 +49,7 @@ object Conversations {
         }
     }
 }
+
+/** The sender name Chinese service SMS start with ("【中国移动】…" → "中国移动"), or null. Same rule as the viewer app. */
+fun senderBrand(body: String): String? =
+    Regex("^\\s*[【\\[]([^】\\]]{1,16})[】\\]]").find(body)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() }

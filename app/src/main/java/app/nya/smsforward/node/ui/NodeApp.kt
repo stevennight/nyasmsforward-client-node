@@ -12,6 +12,10 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -124,8 +128,8 @@ private fun FullApp(runtime: NodeRuntime, resumeTick: Int, openRequest: OpenRequ
             }
         }
         NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-            NavigationBarItem(selected = tab == Tab.MESSAGES, onClick = { tab = Tab.MESSAGES }, icon = { Text("✉") }, label = { Text("短信") })
-            NavigationBarItem(selected = tab == Tab.FORWARD, onClick = { tab = Tab.FORWARD }, icon = { Text("⇄") }, label = { Text("转发") })
+            NavigationBarItem(selected = tab == Tab.MESSAGES, onClick = { tab = Tab.MESSAGES }, icon = { Icon(Icons.Filled.Email, contentDescription = null) }, label = { Text("短信") })
+            NavigationBarItem(selected = tab == Tab.FORWARD, onClick = { tab = Tab.FORWARD }, icon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null) }, label = { Text("转发") })
         }
     }
 
