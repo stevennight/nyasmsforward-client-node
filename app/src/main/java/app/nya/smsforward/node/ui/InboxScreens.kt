@@ -10,7 +10,6 @@ import android.os.Looper
 import android.provider.Telephony
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -183,15 +182,48 @@ fun InboxScreen(
         value = withContext(Dispatchers.IO) { runtime.blocker.list().size }
     }
     var menuOpen by remember { mutableStateOf(false) }
-    var actionsFor by remember { mutableStateOf<ConversationSummary?>(null) }
-    var deleting by remember { mutableStateOf<ConversationSummary?>(null) }
+    // Long-press starts selecting conversations ("threadId:address"); the batch actions replace the header.
+    var selected by remember { mutableStateOf(emptySet<String>()) }
+    var deleting by remember { mutableStateOf<List<ConversationSummary>>(emptyList()) }
+    val selecting = selected.isNotEmpty()
+    fun keyOf(c: ConversationSummary) = "${c.threadId}:${c.address}"
+    fun picked() = conversations.filter { keyOf(it) in selected }
+    // A conversation that went away (deleted, filtered out) cannot stay selected.
+    LaunchedEffect(conversations) { selected = selected.intersect(conversations.map(::keyOf).toSet()) }
     // The recycle bin forgets what is older than 30 days whenever the inbox opens (the block list does in list()).
     LaunchedEffect(Unit) { withContext(Dispatchers.IO) { runtime.recycler.purge() } }
 
     Box(Modifier.fillMaxSize()) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize()) {
-            if (searching) {
+            if (selecting) {
+                SelectionBar(
+                    count = selected.size,
+                    total = conversations.size,
+                    onClose = { selected = emptySet() },
+                    onSelectAll = { all -> selected = if (all) conversations.map(::keyOf).toSet() else emptySet() },
+                ) {
+                    IconButton(onClick = {
+                        val list = picked()
+                        selected = emptySet()
+                        scope.launch(Dispatchers.IO) {
+                            list.filter { it.unread > 0 }.forEach { store.markThreadRead(it.threadId) }
+                            withContext(Dispatchers.Main) { toast(context, "已将 ${list.size} 个会话标为已读") }
+                        }
+                    }) { Icon(Icons.Filled.Done, contentDescription = "标为已读") }
+                    IconButton(onClick = {
+                        val numbers = picked().map { it.address }.filter { it.isNotBlank() }.distinct()
+                        selected = emptySet()
+                        scope.launch(Dispatchers.IO) {
+                            val added = numbers.count { runtime.blocker.blockNumber(it) }
+                            withContext(Dispatchers.Main) {
+                                toast(context, if (added > 0) "已拦截 $added 个号码，以后它们的短信会进“骚扰拦截”" else "这些号码已经在拦截名单里")
+                            }
+                        }
+                    }) { Icon(Icons.Filled.Lock, contentDescription = "拦截这些号码") }
+                    IconButton(onClick = { deleting = picked() }) { Icon(Icons.Filled.Delete, contentDescription = "删除") }
+                }
+            } else if (searching) {
                 val close = {
                     searching = false
                     query = ""
@@ -272,13 +304,20 @@ fun InboxScreen(
             }
             LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
                 items(conversations, key = { "${it.threadId}:${it.address}" }) { c ->
-                    ConversationRow(c, onClick = { onOpen(c.threadId, c.address) }, onLongClick = { if (isDefault) actionsFor = c })
+                    val key = keyOf(c)
+                    ConversationRow(
+                        c,
+                        selected = key in selected,
+                        selecting = selecting,
+                        onClick = { if (selecting) selected = selected.toggle(key) else onOpen(c.threadId, c.address) },
+                        onLongClick = { if (isDefault) selected = selected.toggle(key) },
+                    )
                     HorizontalDivider(Modifier.padding(start = 72.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = .6f))
                 }
             }
         }
     }
-    if (isDefault && !searching) {
+    if (isDefault && !searching && !selecting) {
         ExtendedFloatingActionButton(
             onClick = onNew,
             icon = { Icon(Icons.Filled.Edit, contentDescription = null) },
@@ -290,67 +329,30 @@ fun InboxScreen(
     }
     }
 
-    actionsFor?.let { c ->
+    if (deleting.isNotEmpty()) {
+        val list = deleting
         AlertDialog(
-            onDismissRequest = { actionsFor = null },
-            title = { Text(displayName(context, c.address)) },
+            onDismissRequest = { deleting = emptyList() },
+            title = { Text(if (list.size == 1) "删除会话？" else "删除 ${list.size} 个会话？") },
             text = {
-                Column {
-                    if (c.unread > 0) {
-                        MenuLine("标为已读") {
-                            actionsFor = null
-                            scope.launch(Dispatchers.IO) { store.markThreadRead(c.threadId) }
-                        }
-                    }
-                    if (c.address.isNotBlank()) {
-                        MenuLine("拦截这个号码") {
-                            actionsFor = null
-                            scope.launch(Dispatchers.IO) {
-                                val added = runtime.blocker.blockNumber(c.address)
-                                withContext(Dispatchers.Main) {
-                                    toast(context, if (added) "以后 ${c.address} 的短信会进“骚扰拦截”" else "这个号码已经在拦截名单里")
-                                }
-                            }
-                        }
-                    }
-                    MenuLine("删除会话", danger = true) {
-                        actionsFor = null
-                        deleting = c
-                    }
-                }
+                Text(
+                    (if (list.size == 1) "与 ${displayName(context, list[0].address)} 的全部短信" else "这些会话里的全部短信") +
+                        "会移到手机回收站，30 天内可以恢复。平台上已上报的记录不受影响。",
+                )
             },
-            confirmButton = { TextButton(onClick = { actionsFor = null }) { Text("取消") } },
-        )
-    }
-
-    deleting?.let { c ->
-        AlertDialog(
-            onDismissRequest = { deleting = null },
-            title = { Text("删除会话？") },
-            text = { Text("与 ${displayName(context, c.address)} 的全部短信会移到手机回收站，30 天内可以恢复。平台上已上报的记录不受影响。") },
             confirmButton = {
                 TextButton(onClick = {
-                    deleting = null
+                    deleting = emptyList()
+                    selected = emptySet()
                     scope.launch(Dispatchers.IO) {
-                        val moved = runtime.recycler.recycleThread(c.threadId, Recycler.ORIGIN_APP)
+                        val moved = list.sumOf { runtime.recycler.recycleThread(it.threadId, Recycler.ORIGIN_APP) }
                         withContext(Dispatchers.Main) { toast(context, "已将 $moved 条短信移到回收站") }
                     }
                 }) { Text("删除", color = MaterialTheme.colorScheme.error) }
             },
-            dismissButton = { TextButton(onClick = { deleting = null }) { Text("取消") } },
+            dismissButton = { TextButton(onClick = { deleting = emptyList() }) { Text("取消") } },
         )
     }
-}
-
-/** A full-width choice in a dialog's option list. */
-@Composable
-internal fun MenuLine(text: String, danger: Boolean = false, onClick: () -> Unit) {
-    Text(
-        text,
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 14.dp),
-        style = MaterialTheme.typography.bodyLarge,
-        color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
-    )
 }
 
 /** The search field that replaces the title while searching. */
@@ -397,16 +399,19 @@ private fun Avatar(name: String, address: String, size: Int = 44) {
 }
 
 @Composable
-private fun ConversationRow(c: ConversationSummary, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun ConversationRow(c: ConversationSummary, selected: Boolean, selecting: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
     val context = LocalContext.current
     val contact = remember(c.address) { ContactNames.lookup(context, c.address) }
     val name = contact ?: senderBrand(c.last.body) ?: c.address
     Row(
-        modifier = Modifier.fillMaxWidth().combinedClickable(onClick = onClick, onLongClick = onLongClick).padding(horizontal = 16.dp, vertical = 12.dp),
+        modifier = Modifier.fillMaxWidth()
+            .background(if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
     ) {
-        Avatar(name, c.address)
+        if (selecting) Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) { SelectMark(selected, size = 28) } else Avatar(name, c.address)
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
@@ -553,8 +558,10 @@ fun ThreadScreen(runtime: NodeRuntime, threadId: Long, address: String, initialD
     val lastSub = rows.lastOrNull { it.incoming }?.subId ?: rows.lastOrNull()?.subId
     val sim = sims.firstOrNull { it.subscriptionId == (simChoice ?: lastSub) } ?: sims.firstOrNull()
     var draft by rememberSaveable { mutableStateOf(initialDraft) }
-    var menuFor by remember { mutableStateOf<SmsRow?>(null) }
+    var selected by remember { mutableStateOf(emptySet<Long>()) }
+    val selecting = selected.isNotEmpty()
     val listState = rememberLazyListState()
+    LaunchedEffect(rows) { selected = selected.intersect(rows.map { it.id }.toSet()) }
 
     // Reading the conversation marks it read (only the default app may write that) and clears its notification.
     LaunchedEffect(rows) {
@@ -566,7 +573,34 @@ fun ThreadScreen(runtime: NodeRuntime, threadId: Long, address: String, initialD
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize().imePadding()) {
-            NyaTopBar(name, onBack = onBack, subtitle = if (name != address) address else null)
+            if (selecting) {
+                SelectionBar(
+                    count = selected.size,
+                    total = rows.size,
+                    onClose = { selected = emptySet() },
+                    onSelectAll = { all -> selected = if (all) rows.map { it.id }.toSet() else emptySet() },
+                ) {
+                    TextButton(onClick = {
+                        val text = rows.filter { it.id in selected }.joinToString("\n\n") { it.body }
+                        copy(context, "短信", text, if (selected.size == 1) "已复制" else "已复制 ${selected.size} 条")
+                        selected = emptySet()
+                    }) { Text("复制") }
+                    if (isDefault) {
+                        IconButton(onClick = {
+                            val ids = rows.filter { it.id in selected }.map { it.id }
+                            selected = emptySet()
+                            scope.launch(Dispatchers.IO) {
+                                val ok = ids.count { runtime.recycler.recycle(it, Recycler.ORIGIN_APP) }
+                                withContext(Dispatchers.Main) {
+                                    toast(context, if (ok == ids.size) "已将 $ok 条移到回收站" else "$ok 条移到回收站，${ids.size - ok} 条删除失败")
+                                }
+                            }
+                        }) { Icon(Icons.Filled.Delete, contentDescription = "删除") }
+                    }
+                }
+            } else {
+                NyaTopBar(name, onBack = onBack, subtitle = if (name != address) address else null)
+            }
             HorizontalDivider(color = MaterialTheme.colorScheme.outline)
             LazyColumn(
                 state = listState,
@@ -575,26 +609,14 @@ fun ThreadScreen(runtime: NodeRuntime, threadId: Long, address: String, initialD
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 items(rows, key = { it.id }) { row ->
-                    Box {
-                        Bubble(row, onLongClick = { menuFor = row })
-                        DropdownMenu(expanded = menuFor?.id == row.id, onDismissRequest = { menuFor = null }) {
-                            DropdownMenuItem(text = { Text("复制全文") }, onClick = {
-                                copy(context, "短信", row.body, "已复制")
-                                menuFor = null
-                            })
-                            if (isDefault) {
-                                DropdownMenuItem(text = { Text("删除", color = MaterialTheme.colorScheme.error) }, onClick = {
-                                    menuFor = null
-                                    scope.launch(Dispatchers.IO) {
-                                        val ok = runtime.recycler.recycle(row.id, Recycler.ORIGIN_APP)
-                                        withContext(Dispatchers.Main) {
-                                            Toast.makeText(context, if (ok) "已移到回收站" else "删除失败", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
-                                })
-                            }
-                        }
-                    }
+                    // Long-press selects a message (copy several at once, delete several at once); while selecting, a tap
+                    // adds or removes one.
+                    Bubble(
+                        row,
+                        selected = row.id in selected,
+                        onClick = { if (selecting) selected = selected.toggle(row.id) },
+                        onLongClick = { selected = selected.toggle(row.id) },
+                    )
                 }
             }
             HorizontalDivider(color = MaterialTheme.colorScheme.outline)
@@ -653,11 +675,13 @@ fun ThreadScreen(runtime: NodeRuntime, threadId: Long, address: String, initialD
 }
 
 @Composable
-private fun Bubble(row: SmsRow, onLongClick: () -> Unit) {
+private fun Bubble(row: SmsRow, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
     val context = LocalContext.current
     val incoming = row.incoming
     Column(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth()
+            .background(if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = .6f) else Color.Transparent, RoundedCornerShape(12.dp))
+            .padding(vertical = 2.dp),
         horizontalAlignment = if (incoming) Alignment.Start else Alignment.End,
     ) {
         Surface(
@@ -669,7 +693,7 @@ private fun Bubble(row: SmsRow, onLongClick: () -> Unit) {
                 bottomEnd = if (incoming) 18.dp else 4.dp,
             ),
             border = if (incoming) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline) else null,
-            modifier = Modifier.widthIn(max = 300.dp).combinedClickable(onClick = {}, onLongClick = onLongClick),
+            modifier = Modifier.widthIn(max = 300.dp).combinedClickable(onClick = onClick, onLongClick = onLongClick),
         ) {
             Text(row.body, modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp))
         }
@@ -707,7 +731,22 @@ fun RecycleBinScreen(runtime: NodeRuntime, onBack: () -> Unit) {
         value = withContext(Dispatchers.IO) { runtime.recycler.list() }
     }
     var confirmEmpty by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf(emptySet<Long>()) }
+    var confirmDelete by remember { mutableStateOf(false) }
+    val selecting = selected.isNotEmpty()
     val now = System.currentTimeMillis()
+
+    fun batch(done: String, each: (Long) -> Boolean) {
+        val ids = selected.toList()
+        selected = emptySet()
+        scope.launch(Dispatchers.IO) {
+            val ok = ids.count(each)
+            withContext(Dispatchers.Main) {
+                toast(context, if (ok == ids.size) "$ok 条$done" else "$ok 条$done，${ids.size - ok} 条失败（需要仍是默认短信应用）")
+                reload++
+            }
+        }
+    }
 
     fun act(block: () -> Boolean, done: String, failed: String = "操作失败") {
         scope.launch(Dispatchers.IO) {
@@ -721,11 +760,23 @@ fun RecycleBinScreen(runtime: NodeRuntime, onBack: () -> Unit) {
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize()) {
-            NyaTopBar("回收站", onBack = onBack) {
-                if (items.isNotEmpty()) TextButton(onClick = { confirmEmpty = true }) { Text("清空", color = MaterialTheme.colorScheme.error) }
+            if (selecting) {
+                SelectionBar(
+                    count = selected.size,
+                    total = items.size,
+                    onClose = { selected = emptySet() },
+                    onSelectAll = { all -> selected = if (all) items.map { it.id }.toSet() else emptySet() },
+                ) {
+                    TextButton(onClick = { batch("已恢复") { runtime.recycler.restore(it) } }) { Text("恢复") }
+                    IconButton(onClick = { confirmDelete = true }) { Icon(Icons.Filled.Delete, contentDescription = "彻底删除") }
+                }
+            } else {
+                NyaTopBar("回收站", onBack = onBack) {
+                    if (items.isNotEmpty()) TextButton(onClick = { confirmEmpty = true }) { Text("清空", color = MaterialTheme.colorScheme.error) }
+                }
             }
             Text(
-                "删除的短信在这里保留 30 天，期间可以恢复到手机短信里；网页上“同时删除手机短信”删掉的也在这里。",
+                "删除的短信在这里保留 30 天，期间可以恢复到手机短信里；网页上“同时删除手机短信”删掉的也在这里。长按可多选。",
                 modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -733,9 +784,21 @@ fun RecycleBinScreen(runtime: NodeRuntime, onBack: () -> Unit) {
             if (items.isEmpty()) Text("回收站是空的", modifier = Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
             LazyColumn(contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 items(items, key = { it.id }) { sms ->
-                    SectionCard(
-                        "${displayName(context, sms.address)} · ${if (sms.type == Telephony.Sms.MESSAGE_TYPE_INBOX) "收到" else "发出"} · ${shortTime(sms.date)}",
+                    val isSelected = sms.id in selected
+                    SelectableCard(
+                        selected = isSelected,
+                        selecting = selecting,
+                        onClick = { if (selecting) selected = selected.toggle(sms.id) },
+                        onLongClick = { selected = selected.toggle(sms.id) },
                     ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (selecting) SelectMark(isSelected, size = 20)
+                            Text(
+                                "${displayName(context, sms.address)} · ${if (sms.type == Telephony.Sms.MESSAGE_TYPE_INBOX) "收到" else "发出"} · ${shortTime(sms.date)}",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
                         Text(sms.body, maxLines = 4, overflow = TextOverflow.Ellipsis)
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
@@ -744,17 +807,34 @@ fun RecycleBinScreen(runtime: NodeRuntime, onBack: () -> Unit) {
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                            TextButton(onClick = { act({ runtime.recycler.deleteForever(sms.id) }, "已彻底删除") }) {
-                                Text("彻底删除", color = MaterialTheme.colorScheme.error)
+                            if (!selecting) {
+                                TextButton(onClick = { act({ runtime.recycler.deleteForever(sms.id) }, "已彻底删除") }) {
+                                    Text("彻底删除", color = MaterialTheme.colorScheme.error)
+                                }
+                                FilledTonalButton(onClick = {
+                                    act({ runtime.recycler.restore(sms.id) }, "已恢复", "恢复失败：需要仍是默认短信应用")
+                                }) { Text("恢复") }
                             }
-                            FilledTonalButton(onClick = {
-                                act({ runtime.recycler.restore(sms.id) }, "已恢复", "恢复失败：需要仍是默认短信应用")
-                            }) { Text("恢复") }
                         }
                     }
                 }
             }
         }
+    }
+
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("彻底删除 ${selected.size} 条？") },
+            text = { Text("彻底删除后无法恢复。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    batch("已彻底删除") { runtime.recycler.deleteForever(it) }
+                }) { Text("删除", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("取消") } },
+        )
     }
 
     if (confirmEmpty) {

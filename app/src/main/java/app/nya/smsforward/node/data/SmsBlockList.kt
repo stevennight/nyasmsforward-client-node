@@ -1,6 +1,8 @@
 package app.nya.smsforward.node.data
 
 import app.nya.smsforward.node.sms.BlockRule
+import app.nya.smsforward.node.sms.SpamCategory
+import app.nya.smsforward.node.sms.SpamFilter
 
 /** An SMS the full edition intercepted: kept here instead of the system inbox. */
 data class BlockedSms(
@@ -10,7 +12,7 @@ data class BlockedSms(
     val date: Long,
     val dateSent: Long,
     val subId: Int?,
-    /** BlockRule.NUMBER / KEYWORD / MARKETING, and the rule value that matched. */
+    /** BlockRule.NUMBER / KEYWORD / BUILTIN (MARKETING in old records), and the rule value that matched. */
     val reason: String,
     val detail: String,
     val blockedAt: Long,
@@ -36,12 +38,13 @@ class SmsBlockList(private val db: SqlDb) {
 
     fun removeRule(id: Long): Boolean = db.execute("DELETE FROM block_rules WHERE id = ?", listOf(id)) > 0
 
-    var marketingBlocked: Boolean
-        get() = rules().any { it.kind == BlockRule.MARKETING }
-        set(value) {
-            if (value) addRule(BlockRule.MARKETING, "on", System.currentTimeMillis())
-            else db.execute("DELETE FROM block_rules WHERE kind = ?", listOf(BlockRule.MARKETING))
-        }
+    fun enabledCategories(): Set<SpamCategory> = SpamFilter.enabledCategories(rules())
+
+    /** Switches one built-in category on or off. */
+    fun setCategory(category: SpamCategory, on: Boolean) {
+        if (on) addRule(BlockRule.BUILTIN, category.id, System.currentTimeMillis())
+        else db.execute("DELETE FROM block_rules WHERE kind = ? AND value = ?", listOf(BlockRule.BUILTIN, category.id))
+    }
 
     // --- intercepted messages ---
 
@@ -60,6 +63,8 @@ class SmsBlockList(private val db: SqlDb) {
     fun find(id: Long): BlockedSms? = db.query("SELECT $COLS FROM sms_blocked WHERE id = ?", listOf(id), ::entry).firstOrNull()
 
     fun remove(id: Long): Boolean = db.execute("DELETE FROM sms_blocked WHERE id = ?", listOf(id)) > 0
+
+    fun removeAll(ids: Collection<Long>): Int = db.transaction { ids.sumOf { db.execute("DELETE FROM sms_blocked WHERE id = ?", listOf(it)) } }
 
     fun clear(): Int = db.execute("DELETE FROM sms_blocked")
 

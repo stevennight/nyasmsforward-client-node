@@ -2,6 +2,7 @@ package app.nya.smsforward.node.sms
 
 import app.nya.smsforward.node.data.BlockedSms
 import app.nya.smsforward.node.data.JdbcSqlDb
+import app.nya.smsforward.node.data.Schema
 import app.nya.smsforward.node.data.SmsBlockList
 import app.nya.smsforward.node.data.SmsTrash
 import app.nya.smsforward.node.inbox.ConversationSummary
@@ -72,14 +73,34 @@ class SpamFilterTest {
     }
 
     @Test
-    fun `keywords and marketing never hold back a verification code`() {
-        val all = rules + BlockRule(kind = BlockRule.MARKETING, value = "on")
+    fun `keywords and built-in rules never hold back a verification code`() {
+        val all = rules + BlockRule(kind = BlockRule.BUILTIN, value = "marketing")
         assertNull(SpamFilter.check("95555", "【示例】贷款申请验证码 583921，回T退订", all))
-        assertEquals(BlockRule.MARKETING, SpamFilter.check("95555", "【示例】大促5折，回T退订", all)?.reason)
-        // Marketing is off without its rule.
+        assertEquals(
+            BlockVerdict(BlockRule.BUILTIN, "marketing:回T退"),
+            SpamFilter.check("95555", "【示例】大促5折，回T退订", all),
+        )
+        // Marketing is off without its rule; the v6 switch still counts as on.
         assertNull(SpamFilter.check("95555", "【示例】大促5折，回T退订", rules))
+        assertEquals(BlockRule.BUILTIN, SpamFilter.check("95555", "【示例】大促5折，回T退订", rules + BlockRule(kind = BlockRule.MARKETING, value = "on"))?.reason)
         // A blocked number is blocked even for codes: the user asked for it.
         assertEquals(BlockRule.NUMBER, SpamFilter.check("10690001", "验证码 583921", all)?.reason)
+    }
+
+    @Test
+    fun `contacts and trusted numbers are only caught by the blacklist`() {
+        val all = rules + BlockRule(kind = BlockRule.BUILTIN, value = "fraud") + BlockRule(kind = BlockRule.ALLOW, value = "106*")
+        assertNull(SpamFilter.check("13900000000", "帮我看看这个贷款合同", all, trusted = true))
+        assertNull(SpamFilter.check("1065500", "低息贷款秒批", all))
+        assertEquals(BlockRule.KEYWORD, SpamFilter.check("1075500", "低息贷款秒批", all)?.reason)
+        assertEquals(BlockRule.NUMBER, SpamFilter.check("13800138000", "你好", all, trusted = true)?.reason)
+    }
+
+    @Test
+    fun `describes what caught a message`() {
+        assertEquals("疑似诈骗风险（“安全账户”）", SpamFilter.describe(BlockRule.BUILTIN, "fraud:安全账户"))
+        assertEquals("推广短信", SpamFilter.describe(BlockRule.MARKETING, ""))
+        assertEquals("关键词「贷款」", SpamFilter.describe(BlockRule.KEYWORD, "贷款"))
     }
 }
 
@@ -90,13 +111,15 @@ class SmsBlockListTest {
         assertTrue(list.addRule(BlockRule.NUMBER, " 10690001 ", 1))
         assertFalse(list.addRule(BlockRule.NUMBER, "10690001", 2))
         assertFalse(list.addRule(BlockRule.KEYWORD, "  ", 3))
-        assertFalse(list.marketingBlocked)
-        list.marketingBlocked = true
-        assertTrue(list.marketingBlocked)
-        assertEquals(setOf("10690001", "on"), list.rules().map { it.value }.toSet())
-        list.marketingBlocked = false
-        assertEquals(listOf("10690001"), list.rules().map { it.value })
-        assertTrue(list.removeRule(list.rules().first().id))
+        // A new database starts with the recommended categories on.
+        assertEquals(SpamCategory.entries.filter { it.recommended }.toSet(), list.enabledCategories())
+        list.setCategory(SpamCategory.MARKETING, true)
+        assertTrue(SpamCategory.MARKETING in list.enabledCategories())
+        list.setCategory(SpamCategory.MARKETING, false)
+        list.setCategory(SpamCategory.FRAUD, false)
+        assertFalse(SpamCategory.FRAUD in list.enabledCategories())
+        assertTrue(list.removeRule(list.rules().first { it.kind == BlockRule.NUMBER }.id))
+        assertEquals(emptyList(), list.rules().filter { it.kind == BlockRule.NUMBER })
 
         val day = 86_400_000L
         val old = list.add(BlockedSms(address = "1", body = "旧", date = 1, dateSent = 0, subId = null, reason = "keyword", detail = "x", blockedAt = 0))
@@ -105,6 +128,23 @@ class SmsBlockListTest {
         assertEquals("keyword", list.find(old)?.reason)
         assertEquals(1, list.purge(SmsTrash.RETENTION_MS + day))
         assertEquals(listOf("新"), list.list().map { it.body })
+        assertEquals(1, list.removeAll(list.list().map { it.id }))
+        assertEquals(emptyList(), list.list())
+    }
+
+    @Test
+    fun `schema 7 turns the old marketing switch into a category once`() {
+        val db = JdbcSqlDb()
+        Schema.migrate(db)
+        db.execute("DELETE FROM block_rules")
+        db.execute("INSERT INTO block_rules (kind, value, created_at) VALUES ('marketing', 'on', 1)")
+        db.version = 6
+        val list = SmsBlockList(db)
+        assertTrue(SpamCategory.MARKETING in list.enabledCategories())
+        assertEquals(emptyList(), list.rules().filter { it.kind == BlockRule.MARKETING })
+        // Switched off after the upgrade: it stays off (the migration does not run again).
+        list.setCategory(SpamCategory.GAMBLING, false)
+        assertFalse(SpamCategory.GAMBLING in SmsBlockList(db).enabledCategories())
     }
 }
 

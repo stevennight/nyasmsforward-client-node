@@ -13,6 +13,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.activity.compose.BackHandler
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -76,6 +80,51 @@ fun NyaTopBar(title: String, onBack: (() -> Unit)? = null, subtitle: String? = n
         actions()
     }
 }
+
+/**
+ * Replaces a screen's header while items are selected (long-press one to start): the count, select all / none, and the
+ * batch [actions]. Back leaves selection mode instead of the screen.
+ */
+@Composable
+fun SelectionBar(count: Int, total: Int, onClose: () -> Unit, onSelectAll: (Boolean) -> Unit, actions: @Composable RowScope.() -> Unit) {
+    BackHandler(onBack = onClose)
+    Surface(color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            IconButton(onClick = onClose) { Icon(Icons.Filled.Close, contentDescription = "取消选择") }
+            Text(
+                "已选 $count 项",
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                maxLines = 1,
+            )
+            val all = count >= total && total > 0
+            TextButton(onClick = { onSelectAll(!all) }) { Text(if (all) "全不选" else "全选") }
+            actions()
+        }
+    }
+}
+
+/** The leading mark of a selectable row: a filled check when selected, an empty ring otherwise. */
+@Composable
+fun SelectMark(selected: Boolean, size: Int = 24) {
+    if (selected) {
+        Icon(Icons.Filled.CheckCircle, contentDescription = "已选", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(size.dp))
+    } else {
+        Box(
+            Modifier.size(size.dp).padding(2.dp)
+                .background(MaterialTheme.colorScheme.outline, CircleShape)
+                .padding(2.dp)
+                .background(MaterialTheme.colorScheme.surface, CircleShape),
+        )
+    }
+}
+
+/** Adds [key] to the selection, or takes it out. */
+fun <T> Set<T>.toggle(key: T): Set<T> = if (key in this) this - key else this + key
 
 enum class Tone { OK, WARN, BAD, INFO }
 

@@ -9,10 +9,11 @@ package app.nya.smsforward.node.data
  * schema add statements and raise [LATEST]; never edit what has shipped.
  */
 object Schema {
-    const val LATEST = 6
+    const val LATEST = 7
 
     fun migrate(db: SqlDb) = db.transaction {
-        if (db.version < LATEST) {
+        val from = db.version
+        if (from < LATEST) {
             db.execute(
                 """CREATE TABLE IF NOT EXISTS outbox (
                      id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -97,6 +98,20 @@ object Schema {
                    )""",
             )
             db.execute("CREATE INDEX IF NOT EXISTS idx_sms_blocked_at ON sms_blocked (blocked_at)")
+
+            // Version 7 (full edition): built-in rule categories. The v6 marketing switch becomes one of them, and the
+            // recommended ones (scams, gambling, porn, fake invoices) start switched on; turning one off deletes its row,
+            // and this runs only once, so it stays off.
+            if (from < 7) {
+                db.execute("UPDATE OR IGNORE block_rules SET kind = 'builtin', value = 'marketing' WHERE kind = 'marketing'")
+                db.execute("DELETE FROM block_rules WHERE kind = 'marketing'")
+                for (id in listOf("fraud", "gambling", "porn", "invoice")) {
+                    db.execute(
+                        "INSERT OR IGNORE INTO block_rules (kind, value, created_at) VALUES ('builtin', ?, ?)",
+                        listOf(id, System.currentTimeMillis()),
+                    )
+                }
+            }
             db.version = LATEST
         }
     }
