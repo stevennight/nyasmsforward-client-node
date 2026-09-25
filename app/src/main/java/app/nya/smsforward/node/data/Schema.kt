@@ -9,7 +9,7 @@ package app.nya.smsforward.node.data
  * schema add statements and raise [LATEST]; never edit what has shipped.
  */
 object Schema {
-    const val LATEST = 5
+    const val LATEST = 6
 
     fun migrate(db: SqlDb) = db.transaction {
         if (db.version < LATEST) {
@@ -71,6 +71,32 @@ object Schema {
                    )""",
             )
             db.execute("CREATE INDEX IF NOT EXISTS idx_sms_trash_deleted ON sms_trash (deleted_at)")
+
+            // Version 6 (full edition): interception. Rules are numbers / keywords / the marketing switch; an intercepted
+            // SMS is kept here instead of the system inbox, for 30 days, and can be moved to the inbox.
+            db.execute(
+                """CREATE TABLE IF NOT EXISTS block_rules (
+                     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                     kind        TEXT NOT NULL,
+                     value       TEXT NOT NULL,
+                     created_at  INTEGER NOT NULL,
+                     UNIQUE (kind, value)
+                   )""",
+            )
+            db.execute(
+                """CREATE TABLE IF NOT EXISTS sms_blocked (
+                     id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                     address     TEXT NOT NULL,
+                     body        TEXT NOT NULL,
+                     date        INTEGER NOT NULL,
+                     date_sent   INTEGER NOT NULL DEFAULT 0,
+                     sub_id      INTEGER,
+                     reason      TEXT NOT NULL,
+                     detail      TEXT NOT NULL DEFAULT '',
+                     blocked_at  INTEGER NOT NULL
+                   )""",
+            )
+            db.execute("CREATE INDEX IF NOT EXISTS idx_sms_blocked_at ON sms_blocked (blocked_at)")
             db.version = LATEST
         }
     }

@@ -2,6 +2,7 @@ package app.nya.smsforward.node.inbox
 
 import android.provider.Telephony
 import app.nya.smsforward.node.sms.PeerKey
+import app.nya.smsforward.node.sms.SmsInsight
 import app.nya.smsforward.node.sms.VerificationCode
 
 /** One row of the platform SMS table, as the full edition's inbox shows it. */
@@ -21,6 +22,9 @@ data class SmsRow(
     val failed: Boolean get() = type == Telephony.Sms.MESSAGE_TYPE_FAILED
     val sending: Boolean get() = type == Telephony.Sms.MESSAGE_TYPE_OUTBOX || type == Telephony.Sms.MESSAGE_TYPE_QUEUED
     val code: String? by lazy { if (incoming) VerificationCode.find(body) else null }
+
+    /** A bank movement or parcel pickup code, for messages without a verification code. */
+    val insight: SmsInsight? by lazy { if (incoming && code == null) SmsInsight.find(body) else null }
 }
 
 /** A conversation in the list: the newest message, and how many incoming ones are unread. */
@@ -53,3 +57,39 @@ object Conversations {
 /** The sender name Chinese service SMS start with ("【中国移动】…" → "中国移动"), or null. Same rule as the viewer app. */
 fun senderBrand(body: String): String? =
     Regex("^\\s*[【\\[]([^】\\]]{1,16})[】\\]]").find(body)?.groupValues?.get(1)?.trim()?.takeIf { it.isNotEmpty() }
+
+/** The chips above the conversation list; each looks at a conversation's newest message. */
+enum class InboxFilter(val label: String) {
+    ALL("全部"),
+    UNREAD("未读"),
+    CODE("验证码"),
+    BANK("银行"),
+    PARCEL("快递");
+
+    fun matches(c: ConversationSummary): Boolean = when (this) {
+        ALL -> true
+        UNREAD -> c.unread > 0
+        CODE -> c.last.code != null
+        BANK -> c.last.insight is SmsInsight.Bank
+        PARCEL -> c.last.insight is SmsInsight.Parcel
+    }
+}
+
+/**
+ * Search: the messages whose text or number contains [query] (or whose contact name does, via [nameOf]), grouped like the
+ * list, so each hit conversation shows its newest matching message.
+ */
+fun searchConversations(rows: List<SmsRow>, query: String, nameOf: (String) -> String? = { null }): List<ConversationSummary> {
+    val q = query.trim()
+    if (q.isEmpty()) return Conversations.group(rows)
+    val digits = q.filter { it.isDigit() }
+    val names = HashMap<String, Boolean>()
+    return Conversations.group(
+        rows.filter { row ->
+            row.body.contains(q, ignoreCase = true) ||
+                row.address.contains(q, ignoreCase = true) ||
+                (digits.length >= 3 && digits == q && PeerKey.normalize(row.address).contains(digits)) ||
+                names.getOrPut(row.address) { nameOf(row.address)?.contains(q, ignoreCase = true) == true }
+        },
+    )
+}

@@ -81,11 +81,13 @@ private fun FullApp(runtime: NodeRuntime, resumeTick: Int, openRequest: OpenRequ
     var draft by rememberSaveable { mutableStateOf("") }
     var composing by rememberSaveable { mutableStateOf(false) }
     var trash by rememberSaveable { mutableStateOf(false) }
+    var blocked by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(openRequest) {
         openRequest ?: return@LaunchedEffect
         tab = Tab.MESSAGES
         trash = false
+        blocked = false
         threadId = openRequest.threadId
         address = openRequest.address
         draft = openRequest.draft
@@ -94,6 +96,12 @@ private fun FullApp(runtime: NodeRuntime, resumeTick: Int, openRequest: OpenRequ
     if (tab == Tab.MESSAGES && trash) {
         BackHandler { trash = false }
         Box(Modifier.fillMaxSize().safeDrawingPadding()) { RecycleBinScreen(runtime, onBack = { trash = false }) }
+        return
+    }
+
+    if (tab == Tab.MESSAGES && blocked) {
+        BackHandler { blocked = false }
+        Box(Modifier.fillMaxSize().safeDrawingPadding()) { BlockedScreen(runtime, onBack = { blocked = false }) }
         return
     }
 
@@ -123,6 +131,7 @@ private fun FullApp(runtime: NodeRuntime, resumeTick: Int, openRequest: OpenRequ
                     },
                     onNew = { composing = true },
                     onOpenTrash = { trash = true },
+                    onOpenBlocked = { blocked = true },
                 )
                 Tab.FORWARD -> ForwardingScreens(runtime, resumeTick)
             }

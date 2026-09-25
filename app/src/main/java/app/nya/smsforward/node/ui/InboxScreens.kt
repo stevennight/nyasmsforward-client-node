@@ -9,6 +9,22 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.Telephony
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Clear
+import androidx.compose.material.icons.filled.Done
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.FilterChip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import app.nya.smsforward.node.inbox.InboxFilter
+import app.nya.smsforward.node.inbox.searchConversations
+import app.nya.smsforward.node.sms.SmsInsight
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -131,9 +147,17 @@ private fun DefaultAppCard(onRequest: () -> Unit) {
 }
 
 @Composable
-fun InboxScreen(runtime: NodeRuntime, resumeTick: Int, onOpen: (threadId: Long, address: String) -> Unit, onNew: () -> Unit, onOpenTrash: () -> Unit) {
+fun InboxScreen(
+    runtime: NodeRuntime,
+    resumeTick: Int,
+    onOpen: (threadId: Long, address: String) -> Unit,
+    onNew: () -> Unit,
+    onOpenTrash: () -> Unit,
+    onOpenBlocked: () -> Unit,
+) {
     val context = LocalContext.current
     val store = remember { SmsStore(context) }
+    val scope = rememberCoroutineScope()
     val changes = rememberSmsChanges()
     var recheck by remember { mutableIntStateOf(0) }
     val isDefault = remember(resumeTick, recheck) { store.isDefaultApp() }
@@ -144,19 +168,73 @@ fun InboxScreen(runtime: NodeRuntime, resumeTick: Int, onOpen: (threadId: Long, 
         ContactNames.clear()
         recheck++
     }
-    val conversations by produceState(emptyList<ConversationSummary>(), changes, canRead, canContacts) {
-        value = withContext(Dispatchers.IO) { Conversations.group(store.recent()) }
+    var searching by rememberSaveable { mutableStateOf(false) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var filter by rememberSaveable { mutableStateOf(InboxFilter.ALL) }
+    val rows by produceState(emptyList<SmsRow>(), changes, canRead, canContacts) {
+        value = withContext(Dispatchers.IO) { store.recent() }
     }
+    val conversations by produceState(emptyList<ConversationSummary>(), rows, query, filter) {
+        value = withContext(Dispatchers.Default) {
+            searchConversations(rows, query) { ContactNames.lookup(context, it) }.filter { filter.matches(it) }
+        }
+    }
+    val blockedCount by produceState(0, resumeTick, changes) {
+        value = withContext(Dispatchers.IO) { runtime.blocker.list().size }
+    }
+    var menuOpen by remember { mutableStateOf(false) }
+    var actionsFor by remember { mutableStateOf<ConversationSummary?>(null) }
     var deleting by remember { mutableStateOf<ConversationSummary?>(null) }
-    // The recycle bin forgets what is older than 30 days whenever the inbox opens.
+    // The recycle bin forgets what is older than 30 days whenever the inbox opens (the block list does in list()).
     LaunchedEffect(Unit) { withContext(Dispatchers.IO) { runtime.recycler.purge() } }
 
     Box(Modifier.fillMaxSize()) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.fillMaxSize()) {
-            NyaTopBar("短信") {
-                if (isDefault) {
-                    IconButton(onClick = onOpenTrash) { Icon(Icons.Filled.Delete, contentDescription = "回收站") }
+            if (searching) {
+                val close = {
+                    searching = false
+                    query = ""
+                }
+                BackHandler(onBack = close)
+                SearchBar(query, onChange = { query = it }, onClose = close)
+            } else {
+                NyaTopBar("短信") {
+                    IconButton(onClick = { searching = true }) { Icon(Icons.Filled.Search, contentDescription = "搜索") }
+                    if (isDefault) {
+                        Box {
+                            IconButton(onClick = { menuOpen = true }) { Icon(Icons.Filled.MoreVert, contentDescription = "更多") }
+                            DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+                                DropdownMenuItem(
+                                    text = { Text(if (blockedCount > 0) "骚扰拦截（$blockedCount）" else "骚扰拦截") },
+                                    leadingIcon = { Icon(Icons.Filled.Lock, contentDescription = null) },
+                                    onClick = {
+                                        menuOpen = false
+                                        onOpenBlocked()
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("回收站") },
+                                    leadingIcon = { Icon(Icons.Filled.Delete, contentDescription = null) },
+                                    onClick = {
+                                        menuOpen = false
+                                        onOpenTrash()
+                                    },
+                                )
+                                DropdownMenuItem(
+                                    text = { Text("全部标为已读") },
+                                    leadingIcon = { Icon(Icons.Filled.Done, contentDescription = null) },
+                                    onClick = {
+                                        menuOpen = false
+                                        scope.launch(Dispatchers.IO) {
+                                            val n = store.markAllRead()
+                                            withContext(Dispatchers.Main) { toast(context, if (n > 0) "已将 $n 条标为已读" else "没有未读短信") }
+                                        }
+                                    },
+                                )
+                            }
+                        }
+                    }
                 }
             }
             if (!isDefault) DefaultAppCard { roleLauncher.launch(SmsStore.requestDefaultIntent(context)) }
@@ -171,18 +249,36 @@ fun InboxScreen(runtime: NodeRuntime, resumeTick: Int, onOpen: (threadId: Long, 
                     onClick = { permLauncher.launch(arrayOf(Manifest.permission.READ_CONTACTS)) },
                 ) { Text("显示联系人姓名") }
             }
+            if (canRead) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    for (f in InboxFilter.entries) {
+                        FilterChip(selected = filter == f, onClick = { filter = f }, label = { Text(f.label) })
+                    }
+                }
+            }
             if (canRead && conversations.isEmpty()) {
-                Text("还没有短信", modifier = Modifier.padding(24.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    when {
+                        query.isNotBlank() -> "没有找到“${query.trim()}”"
+                        filter != InboxFilter.ALL -> "没有${filter.label}短信"
+                        else -> "还没有短信"
+                    },
+                    modifier = Modifier.padding(24.dp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
             }
             LazyColumn(contentPadding = PaddingValues(bottom = 96.dp)) {
                 items(conversations, key = { "${it.threadId}:${it.address}" }) { c ->
-                    ConversationRow(c, onClick = { onOpen(c.threadId, c.address) }, onLongClick = { if (isDefault) deleting = c })
+                    ConversationRow(c, onClick = { onOpen(c.threadId, c.address) }, onLongClick = { if (isDefault) actionsFor = c })
                     HorizontalDivider(Modifier.padding(start = 72.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = .6f))
                 }
             }
         }
     }
-    if (isDefault) {
+    if (isDefault && !searching) {
         ExtendedFloatingActionButton(
             onClick = onNew,
             icon = { Icon(Icons.Filled.Edit, contentDescription = null) },
@@ -194,8 +290,40 @@ fun InboxScreen(runtime: NodeRuntime, resumeTick: Int, onOpen: (threadId: Long, 
     }
     }
 
+    actionsFor?.let { c ->
+        AlertDialog(
+            onDismissRequest = { actionsFor = null },
+            title = { Text(displayName(context, c.address)) },
+            text = {
+                Column {
+                    if (c.unread > 0) {
+                        MenuLine("标为已读") {
+                            actionsFor = null
+                            scope.launch(Dispatchers.IO) { store.markThreadRead(c.threadId) }
+                        }
+                    }
+                    if (c.address.isNotBlank()) {
+                        MenuLine("拦截这个号码") {
+                            actionsFor = null
+                            scope.launch(Dispatchers.IO) {
+                                val added = runtime.blocker.blockNumber(c.address)
+                                withContext(Dispatchers.Main) {
+                                    toast(context, if (added) "以后 ${c.address} 的短信会进“骚扰拦截”" else "这个号码已经在拦截名单里")
+                                }
+                            }
+                        }
+                    }
+                    MenuLine("删除会话", danger = true) {
+                        actionsFor = null
+                        deleting = c
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { actionsFor = null }) { Text("取消") } },
+        )
+    }
+
     deleting?.let { c ->
-        val scope = rememberCoroutineScope()
         AlertDialog(
             onDismissRequest = { deleting = null },
             title = { Text("删除会话？") },
@@ -205,7 +333,7 @@ fun InboxScreen(runtime: NodeRuntime, resumeTick: Int, onOpen: (threadId: Long, 
                     deleting = null
                     scope.launch(Dispatchers.IO) {
                         val moved = runtime.recycler.recycleThread(c.threadId, Recycler.ORIGIN_APP)
-                        withContext(Dispatchers.Main) { Toast.makeText(context, "已将 $moved 条短信移到回收站", Toast.LENGTH_SHORT).show() }
+                        withContext(Dispatchers.Main) { toast(context, "已将 $moved 条短信移到回收站") }
                     }
                 }) { Text("删除", color = MaterialTheme.colorScheme.error) }
             },
@@ -213,6 +341,41 @@ fun InboxScreen(runtime: NodeRuntime, resumeTick: Int, onOpen: (threadId: Long, 
         )
     }
 }
+
+/** A full-width choice in a dialog's option list. */
+@Composable
+internal fun MenuLine(text: String, danger: Boolean = false, onClick: () -> Unit) {
+    Text(
+        text,
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick).padding(vertical = 14.dp),
+        style = MaterialTheme.typography.bodyLarge,
+        color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
+    )
+}
+
+/** The search field that replaces the title while searching. */
+@Composable
+private fun SearchBar(query: String, onChange: (String) -> Unit, onClose: () -> Unit) {
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { focus.requestFocus() }
+    Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 12.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+        IconButton(onClick = onClose) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "返回") }
+        OutlinedTextField(
+            value = query,
+            onValueChange = onChange,
+            modifier = Modifier.weight(1f).focusRequester(focus),
+            placeholder = { Text("搜索短信、号码或联系人") },
+            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+            trailingIcon = {
+                if (query.isNotEmpty()) IconButton(onClick = { onChange("") }) { Icon(Icons.Filled.Clear, contentDescription = "清除") }
+            },
+            singleLine = true,
+            shape = RoundedCornerShape(28.dp),
+        )
+    }
+}
+
+internal fun toast(context: Context, text: String) = Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
 
 private fun displayName(context: Context, address: String): String = ContactNames.lookup(context, address) ?: address
 
@@ -272,7 +435,13 @@ private fun ConversationRow(c: ConversationSummary, onClick: () -> Unit, onLongC
                 )
             }
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                c.last.code?.let { CodeTag(it) }
+                val code = c.last.code
+                val insight = c.last.insight
+                when {
+                    code != null -> CodeTag(code)
+                    insight is SmsInsight.Parcel -> InsightTag("取件 ${insight.code}", Tone.WARN)
+                    insight is SmsInsight.Bank -> InsightTag((if (insight.income) "+" else "-") + insight.amount, if (insight.income) Tone.OK else Tone.BAD)
+                }
                 Text(
                     (if (c.last.incoming) "" else if (c.last.failed) "发送失败：" else "我：") + c.last.body,
                     modifier = Modifier.weight(1f),
@@ -301,6 +470,60 @@ private fun CodeTag(code: String) {
         fontFamily = FontFamily.Monospace,
         fontWeight = FontWeight.Bold,
     )
+}
+
+@Composable
+private fun InsightTag(text: String, tone: Tone) {
+    val (bg, fg) = toneColors(tone)
+    Text(
+        text,
+        modifier = Modifier.background(bg, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 1.dp),
+        color = fg,
+        style = MaterialTheme.typography.labelMedium,
+        fontWeight = FontWeight.Bold,
+        maxLines = 1,
+    )
+}
+
+/** Under a bank or parcel message: the recognized facts at a glance, and the pickup code one tap from the clipboard. */
+@Composable
+private fun InsightCard(insight: SmsInsight) {
+    val context = LocalContext.current
+    Surface(
+        color = MaterialTheme.colorScheme.surface,
+        shape = RoundedCornerShape(14.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        modifier = Modifier.widthIn(min = 200.dp, max = 300.dp),
+    ) {
+        when (insight) {
+            is SmsInsight.Bank -> Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(
+                    (if (insight.income) "收入" else "支出") + (insight.cardTail?.let { " · 尾号 $it" } ?: ""),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    (if (insight.income) "+" else "-") + insight.amount + " 元",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    color = toneColors(if (insight.income) Tone.OK else Tone.BAD).second,
+                )
+                insight.balance?.let {
+                    Text("余额 $it 元", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            is SmsInsight.Parcel -> Row(
+                Modifier.padding(start = 14.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text("取件码", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(insight.code, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, fontFamily = FontFamily.Monospace)
+                }
+                TextButton(onClick = { copy(context, "取件码", insight.code, "取件码已复制") }) { Text("复制") }
+            }
+        }
+    }
 }
 
 /**
@@ -456,6 +679,10 @@ private fun Bubble(row: SmsRow, onLongClick: () -> Unit) {
                 onClick = { copy(context, "验证码", code, "验证码已复制") },
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
             ) { Text("复制验证码 $code", fontFamily = FontFamily.Monospace) }
+        }
+        row.insight?.let {
+            Spacer(Modifier.size(4.dp))
+            InsightCard(it)
         }
         Text(
             shortTime(row.date) + when {

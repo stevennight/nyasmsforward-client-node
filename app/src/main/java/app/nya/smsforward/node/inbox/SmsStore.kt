@@ -110,6 +110,15 @@ class SmsStore(context: Context) {
         write { resolver.update(Telephony.Sms.CONTENT_URI, values, "thread_id = ? AND read = 0", arrayOf(threadId.toString())) }
     }
 
+    /** "全部标为已读". Returns how many rows changed (0 when not the default app). */
+    fun markAllRead(): Int {
+        val values = ContentValues().apply {
+            put(Telephony.Sms.READ, 1)
+            put(Telephony.Sms.SEEN, 1)
+        }
+        return write { resolver.update(Telephony.Sms.CONTENT_URI, values, "read = 0", null) } ?: 0
+    }
+
     /** Returns how many rows went; 0 when the platform refused (not the default app). */
     fun deleteMessage(id: Long): Int = write { resolver.delete(ContentUris.withAppendedId(Telephony.Sms.CONTENT_URI, id), null, null) } ?: 0
 

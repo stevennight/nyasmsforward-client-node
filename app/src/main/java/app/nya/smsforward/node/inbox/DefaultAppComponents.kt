@@ -10,6 +10,7 @@ import android.provider.Telephony
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
 import android.util.Log
+import app.nya.smsforward.node.node.NodeRuntime
 import app.nya.smsforward.node.sms.SmsAssembler
 import app.nya.smsforward.node.sms.SmsPart
 
@@ -21,7 +22,7 @@ import app.nya.smsforward.node.sms.SmsPart
 
 /**
  * SMS_DELIVER goes only to the default SMS app, and from then on nobody else stores incoming messages: this writes
- * them to the inbox and posts the notification.
+ * them to the inbox and posts the notification, unless an interception rule holds them back.
  */
 class SmsDeliverReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -39,8 +40,12 @@ class SmsDeliverReceiver : BroadcastReceiver() {
         Thread {
             try {
                 val store = SmsStore(context)
+                val blocker = NodeRuntime.get(context).blocker
                 for (m in messages) {
-                    store.insertIncoming(m.peer, m.body, System.currentTimeMillis(), sentAt, subId)
+                    val now = System.currentTimeMillis()
+                    // Intercepted: kept in the block list, no inbox row and no notification.
+                    if (blocker.intercept(m.peer, m.body, now, sentAt, subId)) continue
+                    store.insertIncoming(m.peer, m.body, now, sentAt, subId)
                     InboxNotifier.newMessage(context, store.threadIdFor(m.peer), m.peer, m.body)
                 }
             } catch (e: Exception) {

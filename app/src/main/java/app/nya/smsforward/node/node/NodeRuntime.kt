@@ -11,8 +11,10 @@ import app.nya.smsforward.node.data.PrefsSettings
 import app.nya.smsforward.node.data.RecentItem
 import app.nya.smsforward.node.data.SendLedger
 import app.nya.smsforward.node.data.SqliteOutbox
+import app.nya.smsforward.node.data.SmsBlockList
 import app.nya.smsforward.node.data.SmsTrash
 import app.nya.smsforward.node.data.SqliteSendLedger
+import app.nya.smsforward.node.inbox.Blocker
 import app.nya.smsforward.node.inbox.Recycler
 import app.nya.smsforward.node.net.ChannelState
 import app.nya.smsforward.node.net.OkHttpNodeApi
@@ -163,6 +165,7 @@ class NodeRuntime private constructor(private val app: Context) {
     // Full edition: a platform deletion goes to the phone's recycle bin (30 days) instead of being final.
     val smsTrash by lazy { SmsTrash(sqlDb) }
     val recycler by lazy { Recycler(app, smsTrash) }
+    val blocker by lazy { Blocker(app, SmsBlockList(sqlDb)) }
     val smsBox by lazy {
         AndroidSmsBox(
             app,

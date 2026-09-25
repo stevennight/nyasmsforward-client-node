@@ -16,6 +16,7 @@ import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import app.nya.smsforward.node.MainActivity
 import app.nya.smsforward.node.R
+import app.nya.smsforward.node.sms.SmsInsight
 import app.nya.smsforward.node.sms.VerificationCode
 
 /** New-message notifications of the full edition, with "复制验证码" when the message carries a code. */
@@ -28,9 +29,17 @@ object InboxNotifier {
         manager.createNotificationChannel(NotificationChannel(CHANNEL, "短信", NotificationManager.IMPORTANCE_HIGH))
         val id = notificationId(threadId, address)
         val code = VerificationCode.find(body)
+        val insight = if (code == null) SmsInsight.find(body) else null
+        val sender = ContactNames.lookup(context, address) ?: senderBrand(body) ?: address
+        val title = when {
+            code != null -> "验证码 $code · $sender"
+            insight is SmsInsight.Parcel -> "取件码 ${insight.code} · $sender"
+            insight is SmsInsight.Bank -> "${if (insight.income) "收入" else "支出"} ${insight.amount} 元 · $sender"
+            else -> sender
+        }
         val builder = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle(if (code != null) "验证码 $code · $address" else address)
+            .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
@@ -39,6 +48,11 @@ object InboxNotifier {
             .setAutoCancel(true)
         if (code != null) {
             builder.addAction(0, "复制验证码", broadcast(context, InboxActionReceiver.ACTION_COPY, id, threadId) { putExtra(EXTRA_CODE, code) })
+        } else if (insight is SmsInsight.Parcel) {
+            builder.addAction(0, "复制取件码", broadcast(context, InboxActionReceiver.ACTION_COPY, id, threadId) {
+                putExtra(EXTRA_CODE, insight.code)
+                putExtra(EXTRA_LABEL, "取件码")
+            })
         }
         builder.addAction(0, "标为已读", broadcast(context, InboxActionReceiver.ACTION_READ, id, threadId) {})
         manager.notify(id, builder.build())
@@ -78,6 +92,7 @@ object InboxNotifier {
             context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED
 
     const val EXTRA_CODE = "code"
+    const val EXTRA_LABEL = "label"
     const val EXTRA_NOTIFICATION = "notification"
     const val EXTRA_THREAD = "thread"
 }
@@ -90,9 +105,10 @@ class InboxActionReceiver : BroadcastReceiver() {
         when (intent.action) {
             ACTION_COPY -> {
                 val code = intent.getStringExtra(InboxNotifier.EXTRA_CODE) ?: return
-                context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("验证码", code))
+                val label = intent.getStringExtra(InboxNotifier.EXTRA_LABEL) ?: "验证码"
+                context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText(label, code))
                 // Android 13+ shows its own "copied" confirmation.
-                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) Toast.makeText(context, "验证码已复制", Toast.LENGTH_SHORT).show()
+                if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) Toast.makeText(context, "${label}已复制", Toast.LENGTH_SHORT).show()
             }
             ACTION_READ -> if (threadId > 0) {
                 val pending = goAsync()
