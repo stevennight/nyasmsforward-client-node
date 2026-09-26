@@ -20,10 +20,11 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
-import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.material3.SwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -31,6 +32,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.delay
 
 /**
  * What a swipe does. [run] returns true when the row goes away (deleted, moved): it then stays swiped out until the list
@@ -44,7 +46,10 @@ class SwipeAction(val icon: ImageVector, val label: String, val color: Color, va
  */
 @Composable
 fun SwipeRow(start: SwipeAction?, end: SwipeAction?, enabled: Boolean = true, content: @Composable () -> Unit) {
-    val state = rememberSwipeToDismissBoxState(positionalThreshold = { it * 0.3f })
+    // Plain remember, not the saveable rememberSwipeToDismissBoxState: a lazy list keeps saved state per item key, so a
+    // conversation deleted by a swipe and then restored ("撤销", the recycle bin) came back with the same key still
+    // swiped out, i.e. invisible, until the app restarted.
+    val state = remember { SwipeToDismissBoxState(SwipeToDismissBoxValue.Settled, positionalThreshold = { it * 0.3f }) }
     val currentStart by rememberUpdatedState(start)
     val currentEnd by rememberUpdatedState(end)
     // Exactly once per swipe. SwipeToDismissBox's own onDismiss is re-run whenever the row recomposes while it is still
@@ -58,7 +63,14 @@ fun SwipeRow(start: SwipeAction?, end: SwipeAction?, enabled: Boolean = true, co
             SwipeToDismissBoxValue.Settled -> return@LaunchedEffect
         }
         val gone = action?.run?.invoke() == true
-        if (!gone) state.reset()
+        if (!gone) {
+            state.reset()
+        } else {
+            // A removed row leaves the list on the next reload, which cancels this. If it is still here after that (it
+            // was restored at once, or the removal did not stick), it must not stay swiped out of sight.
+            delay(1_500)
+            state.snapTo(SwipeToDismissBoxValue.Settled)
+        }
     }
     SwipeToDismissBox(
         state = state,
