@@ -58,6 +58,15 @@ class SqliteOutbox(private val db: SqlDb) : Outbox {
             )
         }
 
+    override fun reportRecords(): List<ReportRecord> =
+        db.query("SELECT peer, body, device_time, direction, state, last_error FROM outbox", emptyList()) { r ->
+            ReportRecord(
+                r.string(0), r.string(1), r.long(2), r.string(3),
+                OutboxState.entries.firstOrNull { it.wire == r.string(4) } ?: OutboxState.PENDING,
+                r.stringOrNull(5),
+            )
+        }
+
     override fun touchPeer(peerKey: String, now: Long) {
         db.execute(
             "INSERT INTO recent_peers (peer_key, last_seen_at) VALUES (?, ?) ON CONFLICT (peer_key) DO UPDATE SET last_seen_at = excluded.last_seen_at",
@@ -83,6 +92,7 @@ class SqliteOutbox(private val db: SqlDb) : Outbox {
     companion object {
         const val FINISHED_TTL_MS = 30L * 24 * 60 * 60 * 1000
         const val PEER_TTL_MS = 90L * 24 * 60 * 60 * 1000
-        const val KEEP_FINISHED = 500
+        // Enough that a busy phone still has a month of states for the inbox to show next to each message.
+        const val KEEP_FINISHED = 5000
     }
 }

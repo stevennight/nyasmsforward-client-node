@@ -103,6 +103,10 @@ import app.nya.smsforward.node.inbox.InboxFilter
 import app.nya.smsforward.node.inbox.InboxNotifier
 import app.nya.smsforward.node.inbox.LocalSender
 import app.nya.smsforward.node.inbox.Recycler
+import app.nya.smsforward.node.inbox.ReportStates
+import app.nya.smsforward.node.data.OutboxState
+import app.nya.smsforward.node.data.ReportRecord
+import androidx.compose.runtime.collectAsState
 import app.nya.smsforward.node.inbox.SmsRow
 import app.nya.smsforward.node.inbox.SmsStore
 import app.nya.smsforward.node.inbox.searchAll
@@ -203,6 +207,7 @@ fun InboxScreen(
             found.filter { filter.matches(it) }
         }
     }
+    val reports = rememberReportStates(runtime, changes)
     val blockedCount by produceState(0, resumeTick, changes) {
         value = withContext(Dispatchers.IO) { runtime.blocker.list().size }
     }
@@ -385,6 +390,7 @@ fun InboxScreen(
                         ConversationRow(
                             c,
                             selected = isSelected,
+                            reports = reports,
                             onClick = { if (selecting) selected = selected.toggle(key) else onOpen(c.threadId, c.address) },
                             onLongClick = {
                                 if (isDefault) {
@@ -471,12 +477,57 @@ private fun Avatar(name: String, address: String, size: Int = 44) {
     }
 }
 
+/**
+ * The report queue matched to the inbox, reloaded when the SMS database changes and whenever the forwarding state moves
+ * (a message queued, an upload finished).
+ */
+@Composable
+private fun rememberReportStates(runtime: NodeRuntime, changes: Int): ReportStates {
+    val ui by runtime.state.collectAsState()
+    val states by produceState(ReportStates.EMPTY, changes, ui.pending, ui.lastUploadAt) {
+        value = withContext(Dispatchers.IO) { ReportStates(runtime.outbox.reportRecords()) }
+    }
+    return states
+}
+
+/**
+ * Before the time in the conversation list: what the platform lacks from this conversation ("待上报 2", "上报失败"), or a
+ * quiet check when its newest message has been reported.
+ */
+@Composable
+private fun ConversationReportMark(c: ConversationSummary, reports: ReportStates) {
+    val refused = reports.refused(c.address)
+    val pending = reports.pending(c.address)
+    when {
+        refused > 0 -> Text("上报失败  ", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+        pending > 0 -> Text("待上报 $pending  ", style = MaterialTheme.typography.labelSmall, color = toneColors(Tone.WARN).second, fontWeight = FontWeight.SemiBold)
+        reports.of(c.last)?.state == OutboxState.DONE -> Icon(
+            Icons.Filled.Done,
+            contentDescription = "已上报",
+            tint = toneColors(Tone.OK).second,
+            modifier = Modifier.size(14.dp).padding(end = 2.dp),
+        )
+    }
+}
+
+/** Under a message: whether the platform has it. Nothing for messages the queue does not know. */
+@Composable
+private fun ReportLabel(report: ReportRecord?) {
+    report ?: return
+    val (text, color) = when (report.state) {
+        OutboxState.DONE -> "已上报" to toneColors(Tone.OK).second
+        OutboxState.PENDING -> "待上报" to toneColors(Tone.WARN).second
+        OutboxState.DEAD -> ("上报被拒" + (report.error?.let { "（$it）" } ?: "")) to MaterialTheme.colorScheme.error
+    }
+    Text(" · $text", style = MaterialTheme.typography.labelSmall, color = color)
+}
+
 /** The background of a picked row in multi-select. */
 @Composable
 private fun selectedTint() = MaterialTheme.colorScheme.primaryContainer
 
 @Composable
-private fun ConversationRow(c: ConversationSummary, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun ConversationRow(c: ConversationSummary, selected: Boolean, reports: ReportStates, onClick: () -> Unit, onLongClick: () -> Unit) {
     val context = LocalContext.current
     val contact = remember(c.address) { ContactNames.lookup(context, c.address) }
     val name = contact ?: senderBrand(c.last.body) ?: c.address
@@ -509,6 +560,7 @@ private fun ConversationRow(c: ConversationSummary, selected: Boolean, onClick: 
                 } else {
                     Spacer(Modifier.weight(1f))
                 }
+                ConversationReportMark(c, reports)
                 Text(
                     shortTime(c.last.date),
                     style = MaterialTheme.typography.labelSmall,
@@ -621,6 +673,7 @@ fun ThreadScreen(runtime: NodeRuntime, threadId: Long, address: String, initialD
     val haptics = LocalHapticFeedback.current
     val snackbar = remember { SnackbarHostState() }
     val isDefault = remember(changes) { store.isDefaultApp() }
+    val reports = rememberReportStates(runtime, changes)
     val contact = remember(address) { ContactNames.lookup(context, address) }
     val rows by produceState(emptyList<SmsRow>(), changes, threadId, address) {
         value = withContext(Dispatchers.IO) {
@@ -690,6 +743,7 @@ fun ThreadScreen(runtime: NodeRuntime, threadId: Long, address: String, initialD
                     Bubble(
                         row,
                         selected = row.id in selected,
+                        report = reports.of(row),
                         onClick = { if (selecting) selected = selected.toggle(row.id) },
                         onLongClick = {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -756,7 +810,7 @@ fun ThreadScreen(runtime: NodeRuntime, threadId: Long, address: String, initialD
 }
 
 @Composable
-private fun Bubble(row: SmsRow, selected: Boolean, onClick: () -> Unit, onLongClick: () -> Unit) {
+private fun Bubble(row: SmsRow, selected: Boolean, report: ReportRecord?, onClick: () -> Unit, onLongClick: () -> Unit) {
     val context = LocalContext.current
     val incoming = row.incoming
     Column(
@@ -789,16 +843,18 @@ private fun Bubble(row: SmsRow, selected: Boolean, onClick: () -> Unit, onLongCl
             Spacer(Modifier.size(4.dp))
             InsightCard(it)
         }
-        Text(
-            shortTime(row.date) + when {
-                row.failed -> " · 发送失败"
-                row.sending -> " · 发送中…"
-                else -> ""
-            },
-            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
-            style = MaterialTheme.typography.labelSmall,
-            color = if (row.failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
-        )
+        Row(Modifier.padding(horizontal = 6.dp, vertical = 2.dp)) {
+            Text(
+                shortTime(row.date) + when {
+                    row.failed -> " · 发送失败"
+                    row.sending -> " · 发送中…"
+                    else -> ""
+                },
+                style = MaterialTheme.typography.labelSmall,
+                color = if (row.failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            ReportLabel(report)
+        }
     }
 }
 

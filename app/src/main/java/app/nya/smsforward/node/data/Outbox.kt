@@ -68,6 +68,9 @@ interface Outbox {
     fun pendingCount(): Int
     fun recent(limit: Int): List<RecentItem>
 
+    /** Every row still kept (all pending ones, the finished ones of the last month), to show report states in the inbox. */
+    fun reportRecords(): List<ReportRecord>
+
     /** Remembers that [peerKey] messaged this phone. "Reply only" mode (M3) may only answer such numbers. */
     fun touchPeer(peerKey: String, now: Long)
     fun recentPeers(since: Long): Set<String>
@@ -75,3 +78,14 @@ interface Outbox {
     /** Drops old finished rows and old peers; pending rows are never pruned. */
     fun prune(now: Long)
 }
+
+/** One queued or reported message, as the full edition's inbox matches it to the phone's own SMS. */
+data class ReportRecord(
+    val peer: String,
+    val body: String,
+    val deviceTime: Long,
+    /** "in" received, "out" sent from the phone's SMS app. */
+    val direction: String,
+    val state: OutboxState,
+    val error: String?,
+)

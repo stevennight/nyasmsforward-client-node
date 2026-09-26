@@ -17,6 +17,8 @@ data class SmsRow(
     val type: Int,
     val read: Boolean,
     val subId: Int? = null,
+    /** When the network stamped it (received messages), 0 when unknown. */
+    val dateSent: Long = 0,
 ) {
     val incoming: Boolean get() = type == Telephony.Sms.MESSAGE_TYPE_INBOX
     val failed: Boolean get() = type == Telephony.Sms.MESSAGE_TYPE_FAILED

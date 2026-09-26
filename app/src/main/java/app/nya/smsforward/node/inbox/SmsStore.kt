@@ -202,7 +202,7 @@ class SmsStore(context: Context) {
 
     private fun readRows(c: Cursor): List<SmsRow> {
         val out = ArrayList<SmsRow>(c.count)
-        val hasSub = c.columnCount > 7
+        val hasSub = c.columnCount > 8
         while (c.moveToNext()) {
             out += SmsRow(
                 id = c.getLong(0),
@@ -212,7 +212,8 @@ class SmsStore(context: Context) {
                 date = c.getLong(4),
                 type = c.getInt(5),
                 read = c.getInt(6) != 0,
-                subId = if (hasSub && !c.isNull(7)) c.getInt(7) else null,
+                dateSent = c.getLong(7),
+                subId = if (hasSub && !c.isNull(8)) c.getInt(8) else null,
             )
         }
         return out
@@ -220,7 +221,7 @@ class SmsStore(context: Context) {
 
     companion object {
         private const val TAG = "SmsStore"
-        private val PROJECTION = arrayOf("_id", "thread_id", "address", "body", "date", "type", "read", "sub_id")
+        private val PROJECTION = arrayOf("_id", "thread_id", "address", "body", "date", "type", "read", "date_sent", "sub_id")
         private val LIGHT_PROJECTION = arrayOf("_id", "thread_id", "address", "date", "type", "read")
 
         fun isDefaultSmsApp(context: Context): Boolean = Telephony.Sms.getDefaultSmsPackage(context) == context.packageName
