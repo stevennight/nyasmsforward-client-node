@@ -43,19 +43,29 @@ class SmsStore(context: Context) {
             ?.use { if (it.moveToFirst()) it.getLong(0) else 0L }
     }.getOrNull() ?: 0L
 
-    /** Puts a message from the recycle bin back with its original time and state. */
-    fun insertRestored(address: String, body: String, date: Long, dateSent: Long, type: Int, read: Boolean, subId: Int?): Uri? = insert(
-        ContentValues().apply {
-            put(Telephony.Sms.ADDRESS, address)
-            put(Telephony.Sms.BODY, body)
-            put(Telephony.Sms.DATE, date)
-            put(Telephony.Sms.DATE_SENT, dateSent)
-            put(Telephony.Sms.TYPE, type)
-            put(Telephony.Sms.READ, if (read) 1 else 0)
-            put(Telephony.Sms.SEEN, 1)
-            if (subId != null) put(Telephony.Sms.SUBSCRIPTION_ID, subId)
-        },
-    )
+    /**
+     * Puts a message from the recycle bin (or the block list) back with its original time and state. Returns the new row
+     * only once it can be read back: when this app is not the default SMS app the provider ignores the insert but still
+     * hands out a Uri, and trusting that Uri made the caller drop its only copy of the message.
+     */
+    fun insertRestored(address: String, body: String, date: Long, dateSent: Long, type: Int, read: Boolean, subId: Int?): SmsRow? {
+        if (!isDefaultApp()) return null
+        val uri = insert(
+            ContentValues().apply {
+                put(Telephony.Sms.ADDRESS, address)
+                put(Telephony.Sms.BODY, body)
+                put(Telephony.Sms.DATE, date)
+                put(Telephony.Sms.DATE_SENT, dateSent)
+                put(Telephony.Sms.TYPE, type)
+                put(Telephony.Sms.READ, if (read) 1 else 0)
+                put(Telephony.Sms.SEEN, 1)
+                if (subId != null) put(Telephony.Sms.SUBSCRIPTION_ID, subId)
+            },
+        ) ?: return null
+        val id = runCatching { ContentUris.parseId(uri) }.getOrDefault(-1L)
+        if (id <= 0) return null
+        return row(id)?.takeIf { it.body == body }
+    }
 
     /** The provider's thread for a number; creates it when needed (only the default app can create one). */
     fun threadIdFor(address: String): Long =
