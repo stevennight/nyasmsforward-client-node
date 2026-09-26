@@ -99,14 +99,13 @@ import app.nya.smsforward.node.data.SmsTrash
 import app.nya.smsforward.node.data.TrashedSms
 import app.nya.smsforward.node.inbox.ContactNames
 import app.nya.smsforward.node.inbox.ConversationSummary
-import app.nya.smsforward.node.inbox.Conversations
 import app.nya.smsforward.node.inbox.InboxFilter
 import app.nya.smsforward.node.inbox.InboxNotifier
 import app.nya.smsforward.node.inbox.LocalSender
 import app.nya.smsforward.node.inbox.Recycler
 import app.nya.smsforward.node.inbox.SmsRow
 import app.nya.smsforward.node.inbox.SmsStore
-import app.nya.smsforward.node.inbox.searchConversations
+import app.nya.smsforward.node.inbox.searchAll
 import app.nya.smsforward.node.inbox.senderBrand
 import app.nya.smsforward.node.net.SimInfo
 import app.nya.smsforward.node.node.NodeRuntime
@@ -114,6 +113,7 @@ import app.nya.smsforward.node.sms.PeerKey
 import app.nya.smsforward.node.sms.SimSlots
 import app.nya.smsforward.node.sms.SmsInsight
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
@@ -191,12 +191,16 @@ fun InboxScreen(
     var searching by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf(InboxFilter.ALL) }
-    val rows by produceState(emptyList<SmsRow>(), changes, canRead, canContacts) {
-        value = withContext(Dispatchers.IO) { store.recent() }
+    // Every conversation in the phone, not just those among the newest few thousand messages.
+    val all by produceState(emptyList<ConversationSummary>(), changes, canRead, canContacts) {
+        value = withContext(Dispatchers.IO) { store.conversations() }
     }
-    val conversations by produceState(emptyList<ConversationSummary>(), rows, query, filter) {
-        value = withContext(Dispatchers.Default) {
-            searchConversations(rows, query) { ContactNames.lookup(context, it) }.filter { filter.matches(it) }
+    val conversations by produceState(emptyList<ConversationSummary>(), all, query, filter) {
+        val q = query.trim()
+        if (q.isNotEmpty()) delay(250) // typing: wait for a pause before searching the whole history
+        value = withContext(Dispatchers.IO) {
+            val found = if (q.isEmpty()) all else searchAll(all, store.search(q), q) { ContactNames.lookup(context, it) }
+            found.filter { filter.matches(it) }
         }
     }
     val blockedCount by produceState(0, resumeTick, changes) {
@@ -621,7 +625,7 @@ fun ThreadScreen(runtime: NodeRuntime, threadId: Long, address: String, initialD
     val rows by produceState(emptyList<SmsRow>(), changes, threadId, address) {
         value = withContext(Dispatchers.IO) {
             val id = threadId.takeIf { it > 0 }
-                ?: Conversations.group(store.recent()).firstOrNull { PeerKey.normalize(it.address) == PeerKey.normalize(address) }?.threadId
+                ?: store.conversations().firstOrNull { PeerKey.normalize(it.address) == PeerKey.normalize(address) }?.threadId
             if (id != null && id > 0) store.thread(id) else emptyList()
         }
     }

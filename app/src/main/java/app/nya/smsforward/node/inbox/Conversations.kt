@@ -31,6 +31,9 @@ data class SmsRow(
 data class ConversationSummary(val threadId: Long, val address: String, val last: SmsRow, val unread: Int)
 
 object Conversations {
+
+    /** What [group] keeps conversations apart by. */
+    fun key(threadId: Long, address: String): String = if (threadId > 0) "t$threadId" else "p${PeerKey.normalize(address)}"
     /**
      * Groups rows into conversations, newest first. The provider's thread id is the key; rows without one (some ROMs
      * leave it 0) are grouped by the normalized number instead, so "+86 138…" and "138…" stay together.
@@ -39,8 +42,7 @@ object Conversations {
         val groups = LinkedHashMap<String, MutableList<SmsRow>>()
         for (row in rows.sortedByDescending { it.date }) {
             if (row.type == Telephony.Sms.MESSAGE_TYPE_DRAFT) continue
-            val key = if (row.threadId > 0) "t${row.threadId}" else "p${PeerKey.normalize(row.address)}"
-            groups.getOrPut(key) { mutableListOf() } += row
+            groups.getOrPut(key(row.threadId, row.address)) { mutableListOf() } += row
         }
         return groups.values.map { list ->
             val last = list.first()
@@ -92,4 +94,16 @@ fun searchConversations(rows: List<SmsRow>, query: String, nameOf: (String) -> S
                 names.getOrPut(row.address) { nameOf(row.address)?.contains(q, ignoreCase = true) == true }
         },
     )
+}
+
+/**
+ * Search over the whole history: [hits] are the messages whose text or number matched anywhere (from the provider), [all]
+ * is every conversation, so a match on a contact name or a number still finds conversations whose hits were not among
+ * [hits]. Unread counts come from [all]: the hits alone do not know them.
+ */
+fun searchAll(all: List<ConversationSummary>, hits: List<SmsRow>, query: String, nameOf: (String) -> String? = { null }): List<ConversationSummary> {
+    val unread = all.associate { Conversations.key(it.threadId, it.address) to it.unread }
+    return searchConversations(hits + all.map { it.last }, query, nameOf).map {
+        it.copy(unread = unread[Conversations.key(it.threadId, it.address)] ?: it.unread)
+    }
 }

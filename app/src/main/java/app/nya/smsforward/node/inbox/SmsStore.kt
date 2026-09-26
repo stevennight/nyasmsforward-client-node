@@ -29,7 +29,42 @@ class SmsStore(context: Context) {
     fun isDefaultApp(): Boolean = isDefaultSmsApp(app)
 
     /** The newest [limit] messages, enough to build the conversation list. */
-    fun recent(limit: Int = 3000): List<SmsRow> = query(null, null, "date DESC LIMIT $limit")
+    /**
+     * Every conversation, however old: one pass over the whole table without message text (cheap even for tens of
+     * thousands of rows) for the grouping and unread counts, then the text of just the newest message of each.
+     */
+    fun conversations(): List<ConversationSummary> {
+        if (!canRead()) return emptyList()
+        val light = try {
+            resolver.query(Telephony.Sms.CONTENT_URI, LIGHT_PROJECTION, null, null, "date DESC")?.use { c ->
+                val out = ArrayList<SmsRow>(c.count)
+                while (c.moveToNext()) {
+                    out += SmsRow(
+                        id = c.getLong(0), threadId = c.getLong(1), address = c.getString(2).orEmpty(), body = "",
+                        date = c.getLong(3), type = c.getInt(4), read = c.getInt(5) != 0,
+                    )
+                }
+                out
+            }.orEmpty()
+        } catch (e: SecurityException) {
+            emptyList()
+        } catch (e: IllegalArgumentException) {
+            emptyList()
+        }
+        val summaries = Conversations.group(light)
+        val full = rowsById(summaries.map { it.last.id })
+        return summaries.map { s -> full[s.last.id]?.let { s.copy(last = it) } ?: s }
+    }
+
+    /** Full rows by id, in batches that stay under SQLite's limit on terms. */
+    private fun rowsById(ids: List<Long>): Map<Long, SmsRow> =
+        ids.chunked(500).flatMap { chunk -> query("_id IN (${chunk.joinToString(",")})", null, "_id") }.associateBy { it.id }
+
+    /** The newest [limit] messages anywhere in the history whose text or number contains [text]. */
+    fun search(text: String, limit: Int = 2000): List<SmsRow> {
+        val pattern = "%" + text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        return query("body LIKE ? ESCAPE '\\' OR address LIKE ? ESCAPE '\\'", arrayOf(pattern, pattern), "date DESC LIMIT $limit")
+    }
 
     /** One conversation, oldest first. */
     fun thread(threadId: Long, limit: Int = 1000): List<SmsRow> =
@@ -186,6 +221,7 @@ class SmsStore(context: Context) {
     companion object {
         private const val TAG = "SmsStore"
         private val PROJECTION = arrayOf("_id", "thread_id", "address", "body", "date", "type", "read", "sub_id")
+        private val LIGHT_PROJECTION = arrayOf("_id", "thread_id", "address", "date", "type", "read")
 
         fun isDefaultSmsApp(context: Context): Boolean = Telephony.Sms.getDefaultSmsPackage(context) == context.packageName
 

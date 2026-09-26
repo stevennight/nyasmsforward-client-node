@@ -8,6 +8,8 @@ import app.nya.smsforward.node.inbox.ConversationSummary
 import app.nya.smsforward.node.inbox.InboxFilter
 import app.nya.smsforward.node.inbox.SmsRow
 import app.nya.smsforward.node.inbox.searchConversations
+import app.nya.smsforward.node.inbox.searchAll
+import app.nya.smsforward.node.inbox.Conversations
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
@@ -200,5 +202,21 @@ class InboxFilterTest {
         assertEquals(listOf(4L), ids(searchConversations(rows, "0013")))
         assertEquals(listOf(1L), ids(searchConversations(rows, "妈妈") { if (it == "95555") "妈妈" else null }))
         assertEquals(emptyList(), ids(searchConversations(rows, "不存在")))
+    }
+
+    @Test
+    fun `search over the whole history keeps real unread counts and finds old hits`() {
+        // Conversation 7 has an old message about "发票" that is not its newest one; the provider found it.
+        val newest = row(7, "10086", "本月话费 30 元", read = false)
+        val all = Conversations.group(rows + newest).map { if (it.threadId == 7L) it.copy(unread = 5) else it }
+        val oldHit = SmsRow(id = 70, threadId = 7, address = "10086", body = "电子发票已开具", date = 0, type = 1, read = true)
+
+        val found = searchAll(all, listOf(oldHit), "发票")
+        assertEquals(listOf(7L), ids(found))
+        assertEquals("电子发票已开具", found.single().last.body)
+        assertEquals(5, found.single().unread)
+        // Names and numbers still match through each conversation's newest message.
+        assertEquals(listOf(1L), ids(searchAll(all, emptyList(), "妈妈") { if (it == "95555") "妈妈" else null }))
+        assertEquals(listOf(7L), ids(searchAll(all, emptyList(), "10086")))
     }
 }
