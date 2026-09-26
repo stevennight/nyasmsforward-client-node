@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.Button
@@ -42,9 +43,9 @@ import app.nya.smsforward.node.sms.PeerKey
 
 private val LIMITS = listOf(5, 10, 20, 50)
 
-/** What the phone will do when the platform asks it to send an SMS. Off by default; only changeable here. */
+/** The "代发短信" page: what the phone will do when the platform asks it to send an SMS. Off by default; only changeable here. */
 @Composable
-fun SendSettingsCard(state: UiState, runtime: NodeRuntime, resumeTick: Int) {
+fun SendSettingsSections(state: UiState, runtime: NodeRuntime, resumeTick: Int) {
     val context = LocalContext.current
     var canSend by remember(resumeTick) { mutableStateOf(granted(context, Manifest.permission.SEND_SMS)) }
     var canReadSims by remember(resumeTick) { mutableStateOf(granted(context, Manifest.permission.READ_PHONE_STATE)) }
@@ -70,7 +71,19 @@ fun SendSettingsCard(state: UiState, runtime: NodeRuntime, resumeTick: Int) {
         }
     }
 
-    SectionCard("下发：让平台经这台手机发短信") {
+    // Problems first, so they are not missed below the options.
+    if (state.sendPolicy != SendPolicy.OFF && (!canSend || !canReadSims || !canReadNumbers)) {
+        SectionCard("缺少权限") {
+            if (!canSend) Warning("没有“发送短信”权限，下发任务都会失败（no_permission）。")
+            if (!canReadSims) Warning("没有“读取 SIM 信息”权限，无法按卡槽选择用哪张卡发送，指定了卡槽的任务会失败。")
+            if (!canReadNumbers) Warning("没有“读取本机号码”权限，换卡槽后无法按号码定位卡，只能兼容旧的卡槽任务。")
+            Button(onClick = {
+                request.launch(arrayOf(Manifest.permission.SEND_SMS, Manifest.permission.READ_PHONE_STATE, Manifest.permission.READ_PHONE_NUMBERS))
+            }) { Text("授予权限") }
+        }
+    }
+
+    SectionCard("谁可以让这台手机发短信") {
         Text(
             "默认关闭。这个设置只能在这台手机上改，服务器无法绕过：即使服务器被攻破，也只能在你允许的范围内发短信。",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -80,15 +93,16 @@ fun SendSettingsCard(state: UiState, runtime: NodeRuntime, resumeTick: Int) {
             PolicyOption(SendPolicy.REPLY, "仅回复", "只回复最近 7 天内给这台手机发过短信的号码，从收到短信的那张卡发出。", state.sendPolicy, ::choose)
             PolicyOption(SendPolicy.ANY, "允许新发", "除回复外，还可以向任意号码发短信。风险最大，请只在需要时开启。", state.sendPolicy, ::choose)
         }
+    }
 
-        if (state.sendPolicy != SendPolicy.OFF) {
-            Text("每小时最多发送", fontWeight = FontWeight.Medium)
+    if (state.sendPolicy != SendPolicy.OFF) {
+        SectionCard("每小时最多发送") {
             ChoiceRow {
                 for (n in LIMITS) {
                     if (n == state.sendLimitPerHour) {
-                        Button(onClick = {}) { ChoiceLabel("$n") }
+                        Button(onClick = {}) { ChoiceLabel("$n 条") }
                     } else {
-                        OutlinedButton(onClick = { runtime.applySendLimit(n) }) { ChoiceLabel("$n") }
+                        OutlinedButton(onClick = { runtime.applySendLimit(n) }) { ChoiceLabel("$n 条") }
                     }
                 }
             }
@@ -96,19 +110,11 @@ fun SendSettingsCard(state: UiState, runtime: NodeRuntime, resumeTick: Int) {
                 "计数在手机上，服务器改不了。收到 106 等服务号的回复指令（如 TD）只算 1 条。",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-
-            AllowlistEditor(state, runtime)
-
-            if (!canSend) Warning("没有“发送短信”权限，下发任务都会失败（no_permission）。")
-            if (!canReadSims) Warning("没有“读取 SIM 信息”权限，无法按卡槽选择用哪张卡发送，指定了卡槽的任务会失败。")
-            if (!canReadNumbers) Warning("没有“读取本机号码”权限，换卡槽后无法按号码定位卡，只能兼容旧的卡槽任务。")
-            if (!canSend || !canReadSims || !canReadNumbers) {
-                OutlinedButton(onClick = {
-                    request.launch(arrayOf(Manifest.permission.SEND_SMS, Manifest.permission.READ_PHONE_STATE, Manifest.permission.READ_PHONE_NUMBERS))
-                }) { Text("授予权限") }
-            }
-            BatteryHint(resumeTick)
         }
+
+        SectionCard("收件人白名单（可选）") { AllowlistEditor(state, runtime) }
+
+        SectionCard("后台运行") { BatteryHint(resumeTick) }
     }
 }
 
@@ -117,7 +123,6 @@ private fun AllowlistEditor(state: UiState, runtime: NodeRuntime) {
     var text by remember(state.allowedRecipients) { mutableStateOf(state.allowedRecipients.joinToString(", ")) }
     var note by remember { mutableStateOf<String?>(null) }
 
-    Text("收件人白名单（可选）", fontWeight = FontWeight.Medium)
     Text(
         "填写后只允许向这些号码发送；回复模式仍会额外检查最近来信。留空表示不启用白名单。",
         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -177,7 +182,7 @@ private fun ChoiceLabel(text: String) {
  * stays visible once granted instead of disappearing.
  */
 @Composable
-private fun BatteryHint(resumeTick: Int) {
+fun BatteryHint(resumeTick: Int) {
     val context = LocalContext.current
     val exempt = remember(resumeTick) {
         context.getSystemService(PowerManager::class.java)?.isIgnoringBatteryOptimizations(context.packageName) == true
@@ -208,7 +213,7 @@ private val HISTORY_CHOICES = listOf(0 to "不回补", 7 to "最近 7 天", 30 t
  * READ_SMS is only asked for at the moment it is switched on.
  */
 @Composable
-fun SentSyncCard(state: UiState, runtime: NodeRuntime, resumeTick: Int) {
+fun SentSyncSections(state: UiState, runtime: NodeRuntime, resumeTick: Int) {
     val context = LocalContext.current
     var canRead by remember(resumeTick) { mutableStateOf(granted(context, Manifest.permission.READ_SMS)) }
     val request = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
@@ -220,14 +225,14 @@ fun SentSyncCard(state: UiState, runtime: NodeRuntime, resumeTick: Int) {
     val on = state.syncSent
     val days = state.backfillDays
 
-    SectionCard("同步手机上发出的短信（可选）") {
-        Text(
-            "在这台手机自带短信 App 里手动发出的短信，默认不会出现在平台上。开启后读取手机的短信数据库把它们补上，" +
-                "会话就完整了（标注“手机上发出”，不弹通知、自动已读）。需要“读取短信”权限，只在你开启时才申请。",
-            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text("同步发出的短信", fontWeight = FontWeight.Medium)
+    SectionCard("同步发出的短信") {
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+            Text(
+                "在这台手机自带短信 App 里手动发出的短信，默认不会出现在平台上。开启后读取手机的短信数据库把它们补上，" +
+                    "会话就完整了（标注“手机上发出”，不弹通知、自动已读）。",
+                modifier = Modifier.weight(1f).padding(end = 12.dp),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             androidx.compose.material3.Switch(
                 checked = on && canRead,
                 onCheckedChange = { want ->
@@ -240,8 +245,12 @@ fun SentSyncCard(state: UiState, runtime: NodeRuntime, resumeTick: Int) {
                 },
             )
         }
-        if (on) {
-            Text("回补历史（只做一次，标为已读、不弹通知）", fontWeight = FontWeight.Medium)
+        Text("需要“读取短信”权限，只在你开启时才申请。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (on && !canRead) Warning("没有“读取短信”权限，无法同步。")
+    }
+    if (on) {
+        SectionCard("回补历史") {
+            Text("只做一次，标为已读、不弹通知。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             ChoiceRow {
                 for ((n, label) in HISTORY_CHOICES) {
                     if (n == days) {
@@ -255,7 +264,6 @@ fun SentSyncCard(state: UiState, runtime: NodeRuntime, resumeTick: Int) {
                 "经平台发出的短信不会重复上报。手机进程被系统结束时，最多 15 分钟内补上；开着本 App 时几秒内就会同步。",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (!canRead) Warning("没有“读取短信”权限，无法同步。")
         }
     }
 }

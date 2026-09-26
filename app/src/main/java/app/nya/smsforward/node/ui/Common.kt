@@ -13,6 +13,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.KeyboardArrowRight
+import androidx.compose.foundation.clickable
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Icon
@@ -123,3 +126,79 @@ fun IconBadge(icon: ImageVector, tint: Color = MaterialTheme.colorScheme.primary
 
 fun formatTime(millis: Long): String =
     if (millis <= 0) "从未" else SimpleDateFormat("MM-dd HH:mm", Locale.CHINA).format(Date(millis))
+
+/** A titled group of [SettingsRow]s on one surface, the way system settings lay them out. */
+@Composable
+fun SettingsGroup(title: String?, content: @Composable () -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        if (title != null) {
+            Text(
+                title,
+                modifier = Modifier.padding(start = 8.dp),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+            shape = MaterialTheme.shapes.medium,
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline),
+        ) { Column { content() } }
+    }
+}
+
+/**
+ * One entry of a settings list: an icon, what it is, its current state underneath, and a chevron when it opens a page.
+ * [trailing] replaces the chevron (e.g. a switch). [danger] paints it red, for "断开连接".
+ */
+@Composable
+fun SettingsRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String? = null,
+    subtitleTone: Tone? = null,
+    danger: Boolean = false,
+    divider: Boolean = true,
+    trailing: (@Composable () -> Unit)? = null,
+    onClick: (() -> Unit)?,
+) {
+    val tint = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    Column {
+        Row(
+            modifier = Modifier.fillMaxWidth()
+                .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Box(
+                Modifier.size(36.dp).background(if (danger) toneColors(Tone.BAD).first else MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(10.dp)),
+                contentAlignment = Alignment.Center,
+            ) { Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(20.dp)) }
+            Column(Modifier.weight(1f)) {
+                Text(title, fontWeight = FontWeight.Medium, color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+                if (subtitle != null) {
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = subtitleTone?.let { toneColors(it).second } ?: MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            when {
+                trailing != null -> trailing()
+                onClick != null && !danger -> Icon(
+                    Icons.AutoMirrored.Filled.KeyboardArrowRight,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        }
+        if (divider) HorizontalDivider(Modifier.padding(start = 66.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = .6f))
+    }
+}

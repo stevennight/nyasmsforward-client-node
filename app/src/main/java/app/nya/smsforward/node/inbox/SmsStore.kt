@@ -110,6 +110,14 @@ class SmsStore(context: Context) {
         write { resolver.update(Telephony.Sms.CONTENT_URI, values, "thread_id = ? AND read = 0", arrayOf(threadId.toString())) }
     }
 
+    /** "标为未读": the newest incoming message of the conversation becomes unread again, like other SMS apps do it. */
+    fun markThreadUnread(threadId: Long): Boolean {
+        val newest = query("thread_id = ? AND type = ?", arrayOf(threadId.toString(), Telephony.Sms.MESSAGE_TYPE_INBOX.toString()), "date DESC LIMIT 1")
+            .firstOrNull() ?: return false
+        val values = ContentValues().apply { put(Telephony.Sms.READ, 0) }
+        return (write { resolver.update(ContentUris.withAppendedId(Telephony.Sms.CONTENT_URI, newest.id), values, null, null) } ?: 0) > 0
+    }
+
     /** "全部标为已读". Returns how many rows changed (0 when not the default app). */
     fun markAllRead(): Int {
         val values = ContentValues().apply {

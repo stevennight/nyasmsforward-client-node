@@ -9,7 +9,7 @@ package app.nya.smsforward.node.data
  * schema add statements and raise [LATEST]; never edit what has shipped.
  */
 object Schema {
-    const val LATEST = 6
+    const val LATEST = 7
 
     fun migrate(db: SqlDb) = db.transaction {
         if (db.version < LATEST) {
@@ -97,6 +97,14 @@ object Schema {
                    )""",
             )
             db.execute("CREATE INDEX IF NOT EXISTS idx_sms_blocked_at ON sms_blocked (blocked_at)")
+
+            // Version 7 (full edition): more built-in interception categories. The two that practically never hit a
+            // wanted message (gambling / porn, scams) start switched on, once; after that the user's choice stands.
+            if (db.version < 7) {
+                for (kind in listOf("gambling", "fraud")) {
+                    db.execute("INSERT OR IGNORE INTO block_rules (kind, value, created_at) VALUES (?, 'on', 0)", listOf(kind))
+                }
+            }
             db.version = LATEST
         }
     }

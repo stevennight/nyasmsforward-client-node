@@ -1,6 +1,7 @@
 package app.nya.smsforward.node.data
 
 import app.nya.smsforward.node.sms.BlockRule
+import app.nya.smsforward.node.sms.SpamCategory
 
 /** An SMS the full edition intercepted: kept here instead of the system inbox. */
 data class BlockedSms(
@@ -10,7 +11,7 @@ data class BlockedSms(
     val date: Long,
     val dateSent: Long,
     val subId: Int?,
-    /** BlockRule.NUMBER / KEYWORD / MARKETING, and the rule value that matched. */
+    /** BlockRule.NUMBER / KEYWORD or a SpamCategory kind, and what matched. */
     val reason: String,
     val detail: String,
     val blockedAt: Long,
@@ -36,12 +37,17 @@ class SmsBlockList(private val db: SqlDb) {
 
     fun removeRule(id: Long): Boolean = db.execute("DELETE FROM block_rules WHERE id = ?", listOf(id)) > 0
 
+    /** Whether a built-in [SpamCategory] is switched on (its rule is present). */
+    fun isOn(category: SpamCategory): Boolean = rules().any { it.kind == category.kind }
+
+    fun setOn(category: SpamCategory, on: Boolean) {
+        if (on) addRule(category.kind, "on", System.currentTimeMillis())
+        else db.execute("DELETE FROM block_rules WHERE kind = ?", listOf(category.kind))
+    }
+
     var marketingBlocked: Boolean
-        get() = rules().any { it.kind == BlockRule.MARKETING }
-        set(value) {
-            if (value) addRule(BlockRule.MARKETING, "on", System.currentTimeMillis())
-            else db.execute("DELETE FROM block_rules WHERE kind = ?", listOf(BlockRule.MARKETING))
-        }
+        get() = isOn(SpamCategory.MARKETING)
+        set(value) = setOn(SpamCategory.MARKETING, value)
 
     // --- intercepted messages ---
 

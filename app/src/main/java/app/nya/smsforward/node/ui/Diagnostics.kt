@@ -166,7 +166,7 @@ fun SimCard(state: UiState, runtime: NodeRuntime) {
     SectionCard("SIM 卡", icon = Icons.Filled.Phone) {
         if (state.sims.isEmpty()) {
             Text(
-                "系统没有向本应用提供 SIM 信息。请在上面授予“读取 SIM 信息”，返回此页会自动刷新。",
+                "系统没有向本应用提供 SIM 信息。请在「权限与后台运行」里授予“读取 SIM 信息”，回到这里会自动刷新。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )

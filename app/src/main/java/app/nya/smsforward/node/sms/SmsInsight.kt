@@ -43,13 +43,3 @@ sealed class SmsInsight {
         }
     }
 }
-
-/**
- * Marketing SMS in China must say how to unsubscribe ("回T退订", "拒收请回复R"), which makes them easy to spot. Used by the
- * full edition's optional "拦截推广短信".
- */
-object Marketing {
-    private val unsubscribe = Regex("(?i)(退订|回\\s*[TNR](?:D)?\\s*退|拒收请回|回复\\s*[TNR]|退订回|unsubscribe)")
-
-    fun looksLike(body: String): Boolean = unsubscribe.containsMatchIn(body) && VerificationCode.find(body) == null
-}

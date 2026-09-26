@@ -46,12 +46,51 @@ class SmsInsightTest {
         assertNull(SmsInsight.find("【示例商城】验证码 583921，5 分钟内有效"))
     }
 
+}
+
+class SpamCategoryTest {
+    private fun hit(c: SpamCategory, body: String, from: String = "10690001") = c.match(from, body)
+
     @Test
-    fun `spots marketing but never a verification code`() {
-        assertTrue(Marketing.looksLike("【示例商城】秋季大促全场5折，回T退订"))
-        assertTrue(Marketing.looksLike("【示例】会员日福利已到账，拒收请回复R"))
-        assertFalse(Marketing.looksLike("【示例商城】验证码 583921，回T退订"))
-        assertFalse(Marketing.looksLike("明天见"))
+    fun `marketing needs an unsubscribe note or promo words with a link`() {
+        assertEquals("回T退订", hit(SpamCategory.MARKETING, "【示例商城】秋季大促全场5折，回T退订"))
+        assertEquals("拒收请回复R", hit(SpamCategory.MARKETING, "【示例】会员日福利已到账，拒收请回复R"))
+        assertEquals("回复TD退订", hit(SpamCategory.MARKETING, "【示例】新品上市，回复TD退订"))
+        assertEquals("限时、秒杀", hit(SpamCategory.MARKETING, "【示例】限时秒杀 低至9.9 戳 https://e.example.cn/a"))
+        // Promo words without a link, or one promo word with a link, are not enough.
+        assertNull(hit(SpamCategory.MARKETING, "限时秒杀，明天见"))
+        assertNull(hit(SpamCategory.MARKETING, "你的福利到了 https://e.example.cn/a"))
+        // A confirmation request is not an unsubscribe note.
+        assertNull(hit(SpamCategory.MARKETING, "【示例银行】回复Y确认开通，回复N取消"))
+    }
+
+    @Test
+    fun `loan ads but not the bank itself`() {
+        assertEquals("秒到账、最高可借", hit(SpamCategory.LOAN, "【示例】您有一笔最高可借20万的额度，秒到账"))
+        assertEquals("低息", hit(SpamCategory.LOAN, "低息贷款 点击 t.cn/abc"))
+        assertEquals("不看征信", hit(SpamCategory.LOAN, "不 看 征 信，回T退订"))
+        assertNull(hit(SpamCategory.LOAN, "【示例银行】您的信用卡账单已出，请按时还款。", "95555"))
+        assertNull(hit(SpamCategory.LOAN, "【示例银行】您尾号1234的账户放款入账5,000.00元，余额8,000.00元，资金周转请合理使用", "95555"))
+        assertNull(hit(SpamCategory.LOAN, "借我点钱急用", "13800138000"))
+    }
+
+    @Test
+    fun `gambling survives split words`() {
+        assertEquals("彩金", hit(SpamCategory.GAMBLING, "注册即领彩*金88元"))
+        assertEquals("百家乐", hit(SpamCategory.GAMBLING, "真人 百 家 乐 在线"))
+        assertNull(hit(SpamCategory.GAMBLING, "下周去澳门玩吗"))
+    }
+
+    @Test
+    fun `fraud phrases, and phishing only from personal numbers with a link`() {
+        assertEquals("安全账户", hit(SpamCategory.FRAUD, "请将资金转入安全账户配合调查"))
+        assertEquals("刷单", hit(SpamCategory.FRAUD, "在家兼职刷单，一单一结"))
+        assertEquals("积分即将清零", hit(SpamCategory.FRAUD, "【中国移动】您的积分即将清零，请登录 http://x.top 兑换", "13912345678"))
+        assertEquals("etc已停用", hit(SpamCategory.FRAUD, "您的ETC已停用，请点击 abc.xyz/e 认证", "+639171234567"))
+        // The same text from a service number is how the real notice looks.
+        assertNull(hit(SpamCategory.FRAUD, "【中国移动】您的积分即将清零，请登录 http://x.top 兑换", "10086"))
+        // No link, nothing to click.
+        assertNull(hit(SpamCategory.FRAUD, "你的快递到了，理赔的事明天说", "13912345678"))
     }
 }
 
@@ -60,26 +99,45 @@ class SpamFilterTest {
         BlockRule(kind = BlockRule.NUMBER, value = "+86 138 0013 8000"),
         BlockRule(kind = BlockRule.NUMBER, value = "1069*"),
         BlockRule(kind = BlockRule.KEYWORD, value = "贷款"),
+        BlockRule(kind = BlockRule.KEYWORD, value = "会员 续费"),
     )
 
     @Test
     fun `matches numbers, prefixes and keywords`() {
         assertEquals(BlockRule.NUMBER, SpamFilter.check("13800138000", "你好", rules)?.reason)
         assertEquals(BlockVerdict(BlockRule.NUMBER, "1069*"), SpamFilter.check("10690001", "随便", rules))
-        assertEquals(BlockVerdict(BlockRule.KEYWORD, "贷款"), SpamFilter.check("95555", "低息贷款秒批", rules))
+        assertEquals(BlockVerdict(BlockRule.KEYWORD, "贷款"), SpamFilter.check("95555", "低息贷 款秒批", rules))
+        assertEquals(BlockVerdict(BlockRule.KEYWORD, "会员 续费"), SpamFilter.check("95555", "您的会员即将到期，续费享8折", rules))
+        assertNull(SpamFilter.check("95555", "您的会员即将到期", rules))
         assertNull(SpamFilter.check("95555", "您的账单已出", rules))
         assertNull(SpamFilter.check("1060", "hi", rules))
     }
 
     @Test
-    fun `keywords and marketing never hold back a verification code`() {
+    fun `keywords and categories never hold back a verification code or a contact`() {
         val all = rules + BlockRule(kind = BlockRule.MARKETING, value = "on")
         assertNull(SpamFilter.check("95555", "【示例】贷款申请验证码 583921，回T退订", all))
         assertEquals(BlockRule.MARKETING, SpamFilter.check("95555", "【示例】大促5折，回T退订", all)?.reason)
-        // Marketing is off without its rule.
+        assertNull(SpamFilter.check("95555", "【示例】大促5折，回T退订", all, isContact = true))
+        // A category is off without its rule.
         assertNull(SpamFilter.check("95555", "【示例】大促5折，回T退订", rules))
-        // A blocked number is blocked even for codes: the user asked for it.
-        assertEquals(BlockRule.NUMBER, SpamFilter.check("10690001", "验证码 583921", all)?.reason)
+        // A blocked number is blocked even for codes and contacts: the user asked for it.
+        assertEquals(BlockRule.NUMBER, SpamFilter.check("10690001", "验证码 583921", all, isContact = true)?.reason)
+    }
+
+    @Test
+    fun `a trusted number beats everything`() {
+        val all = rules + BlockRule(kind = BlockRule.ALLOW, value = "10690088") + BlockRule(kind = SpamCategory.GAMBLING.kind, value = "on")
+        assertNull(SpamFilter.check("10690088", "彩金 贷款", all))
+        assertEquals(BlockRule.NUMBER, SpamFilter.check("10690089", "彩金", all)?.reason)
+        assertEquals(SpamCategory.GAMBLING.kind, SpamFilter.check("95555", "彩金88", all)?.reason)
+    }
+
+    @Test
+    fun `describes why`() {
+        assertEquals("推广营销 · 回T退订", SpamFilter.describe("marketing", "回T退订"))
+        assertEquals("推广营销", SpamFilter.describe("marketing", ""))
+        assertEquals("关键词「贷款」", SpamFilter.describe(BlockRule.KEYWORD, "贷款"))
     }
 }
 
@@ -87,6 +145,11 @@ class SmsBlockListTest {
     @Test
     fun `stores rules once and keeps intercepted messages for 30 days`() {
         val list = SmsBlockList(JdbcSqlDb())
+        // A fresh database starts with the two safest categories on.
+        assertEquals(setOf(SpamCategory.GAMBLING, SpamCategory.FRAUD), SpamCategory.entries.filter { list.isOn(it) }.toSet())
+        list.setOn(SpamCategory.GAMBLING, false)
+        list.setOn(SpamCategory.FRAUD, false)
+
         assertTrue(list.addRule(BlockRule.NUMBER, " 10690001 ", 1))
         assertFalse(list.addRule(BlockRule.NUMBER, "10690001", 2))
         assertFalse(list.addRule(BlockRule.KEYWORD, "  ", 3))
