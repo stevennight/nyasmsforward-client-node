@@ -22,14 +22,15 @@ import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import kotlinx.coroutines.launch
 
 /**
  * What a swipe does. [run] returns true when the row goes away (deleted, moved): it then stays swiped out until the list
@@ -44,19 +45,26 @@ class SwipeAction(val icon: ImageVector, val label: String, val color: Color, va
 @Composable
 fun SwipeRow(start: SwipeAction?, end: SwipeAction?, enabled: Boolean = true, content: @Composable () -> Unit) {
     val state = rememberSwipeToDismissBoxState(positionalThreshold = { it * 0.3f })
-    val scope = rememberCoroutineScope()
+    val currentStart by rememberUpdatedState(start)
+    val currentEnd by rememberUpdatedState(end)
+    // Exactly once per swipe. SwipeToDismissBox's own onDismiss is re-run whenever the row recomposes while it is still
+    // swiped out, and an action like "标为已读" recomposes it (the list reloads) during the slide back, which ran the
+    // action again and again. Keyed on the settled value alone, this runs when the swipe settles and not before the row
+    // has settled somewhere else.
+    LaunchedEffect(state.settledValue) {
+        val action = when (state.settledValue) {
+            SwipeToDismissBoxValue.StartToEnd -> currentStart
+            SwipeToDismissBoxValue.EndToStart -> currentEnd
+            SwipeToDismissBoxValue.Settled -> return@LaunchedEffect
+        }
+        val gone = action?.run?.invoke() == true
+        if (!gone) state.reset()
+    }
     SwipeToDismissBox(
         state = state,
         enableDismissFromStartToEnd = start != null,
         enableDismissFromEndToStart = end != null,
         gesturesEnabled = enabled && (start != null || end != null),
-        onDismiss = { value ->
-            val action = if (value == SwipeToDismissBoxValue.StartToEnd) start else end
-            scope.launch {
-                val gone = action?.run?.invoke() == true
-                if (!gone) state.reset()
-            }
-        },
         backgroundContent = {
             val toEnd = state.dismissDirection == SwipeToDismissBoxValue.StartToEnd
             val action = when (state.dismissDirection) {
