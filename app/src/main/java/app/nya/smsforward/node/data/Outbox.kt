@@ -79,7 +79,7 @@ interface Outbox {
     fun prune(now: Long)
 }
 
-/** One queued or reported message, as the full edition's inbox matches it to the phone's own SMS. */
+/** One queued or reported message, as the SMS-app feature's inbox matches it to the phone's own SMS. */
 data class ReportRecord(
     val peer: String,
     val body: String,

@@ -1,7 +1,7 @@
 package app.nya.smsforward.node.sms
 
 /**
- * The full edition's built-in interception categories. Each one is a switch (a [BlockRule] whose kind is [kind]); none of
+ * The SMS-app feature's built-in interception categories. Each one is a switch (a [BlockRule] whose kind is [kind]); none of
  * them ever touches a message that carries a verification code, and [SpamFilter] also spares contacts and trusted numbers.
  *
  * Every category is deliberately conservative: a single ordinary word ("红包", "贷款", "澳门") is never enough, only phrases

@@ -19,6 +19,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
 import androidx.compose.material.icons.automirrored.filled.Send
+import androidx.compose.material.icons.filled.Email
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
@@ -47,7 +48,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import app.nya.smsforward.node.BuildConfig
 import app.nya.smsforward.node.net.ChannelState
 import app.nya.smsforward.node.node.NodeRuntime
 import app.nya.smsforward.node.node.PairResult
@@ -65,6 +65,7 @@ private enum class SettingsPage(val title: String) {
     SYNC("同步发出的短信"),
     PERMISSIONS("权限与后台运行"),
     SIM("SIM 卡"),
+    SMS_APP("短信应用"),
     ABOUT("关于与更新"),
 }
 
@@ -88,6 +89,7 @@ fun SettingsScreen(state: UiState, runtime: NodeRuntime, resumeTick: Int, onBack
                     SectionCard("后台运行") { BatteryHint(resumeTick) }
                 }
                 SettingsPage.SIM -> SimCard(state, runtime)
+                SettingsPage.SMS_APP -> SmsAppSections(state, runtime)
                 SettingsPage.ABOUT -> UpdateCard()
             }
         }
@@ -140,6 +142,11 @@ private fun SettingsHome(state: UiState, runtime: NodeRuntime, resumeTick: Int, 
                     ) { onOpen(SettingsPage.SYNC) }
                 }
 
+                SettingsGroup("功能") {
+                    val (smsText, smsTone) = smsAppSummary(state)
+                    SettingsRow(Icons.Filled.Email, "短信应用", smsText, subtitleTone = smsTone, divider = false) { onOpen(SettingsPage.SMS_APP) }
+                }
+
                 SettingsGroup("这台手机") {
                     val required = missing.any { it.required }
                     SettingsRow(
@@ -169,7 +176,7 @@ private fun SettingsHome(state: UiState, runtime: NodeRuntime, resumeTick: Int, 
                     SettingsRow(
                         Icons.Filled.Info,
                         "关于与更新",
-                        "v${BuildConfig.VERSION_NAME} · ${if (BuildConfig.FULL_EDITION) "完整版" else "普通版"}",
+                        versionLabel(state.smsApp),
                     ) { onOpen(SettingsPage.ABOUT) }
                     SettingsRow(
                         Icons.AutoMirrored.Filled.ExitToApp,

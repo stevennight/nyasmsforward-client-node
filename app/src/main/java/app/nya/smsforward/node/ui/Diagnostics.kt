@@ -41,6 +41,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import app.nya.smsforward.node.BuildConfig
+import app.nya.smsforward.node.inbox.SmsAppFeature
 import app.nya.smsforward.node.net.SimInfo
 import app.nya.smsforward.node.node.NodeRuntime
 import app.nya.smsforward.node.node.UiState
@@ -121,7 +122,7 @@ fun UpdateCard() {
 
     SectionCard("关于与更新", icon = Icons.Filled.Refresh) {
         Text(
-            "当前版本 v${BuildConfig.VERSION_NAME} · ${if (BuildConfig.FULL_EDITION) "完整版" else "普通版"}",
+            "当前版本 " + versionLabel(SmsAppFeature.isOn(context)),
             fontWeight = FontWeight.Medium,
         )
         when (val result = update) {

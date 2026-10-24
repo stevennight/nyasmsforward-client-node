@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The old full edition's last builds (package suffix ".full"). Everything else is the standard app's manifest, with the
+  SMS-app components enabled from the start so an existing default-SMS-app install keeps its role across the update.
+  This provider hands the data and the pairing to the standard app (migrate/LegacyExportProvider.kt). It is exported, but
+  every call checks that the caller is the standard app signed with the same key.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <provider
+            android:name=".migrate.LegacyExportProvider"
+            android:authorities="${applicationId}.migration"
+            android:exported="true"
+            tools:ignore="ExportedContentProvider" />
+    </application>
+</manifest>

@@ -9,7 +9,6 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Telephony
 import android.telephony.SmsManager
-import app.nya.smsforward.node.BuildConfig
 import app.nya.smsforward.node.inbox.SmsStore
 import app.nya.smsforward.node.net.SimInfo
 import app.nya.smsforward.node.sms.SimSlots
@@ -40,9 +39,9 @@ class AndroidSmsSender(context: Context, private val manualNumbers: () -> Map<In
         } else {
             manager.sendMultipartTextMessage(task.to, null, parts, sent, delivered)
         }
-        // As the default SMS app (full edition) nobody else records what we send, so the phone's own inbox would
+        // As the default SMS app nobody else records what we send, so the phone's own inbox would
         // otherwise never show replies made from the web.
-        if (BuildConfig.FULL_EDITION && SmsStore.isDefaultSmsApp(app)) {
+        if (SmsStore.isDefaultSmsApp(app)) {
             SmsStore(app).insertOutgoing(task.to, task.body, (sim as? SimChoice.Subscription)?.id, Telephony.Sms.MESSAGE_TYPE_SENT)
         }
     }

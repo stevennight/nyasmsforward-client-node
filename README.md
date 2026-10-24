@@ -4,13 +4,12 @@ NyaSmsForward 的**接收端**（Android，Kotlin + Jetpack Compose）：装在�
 
 > 你平时用来看短信、回复短信的主力手机装的是 `nyasmsforward-client`，不是这个 App。
 
-## 两个版本
+## 短信应用（可选功能，默认关闭）
 
-同一套代码打出两个安装包（Gradle flavor `lite` / `full`），包名不同，可以同时安装，按需选一个：
+只有一个安装包 `NyaSmsForward-Node_<版本>.apk`（包名 `app.nya.smsforward.node`，老的普通版原地升级）。装上后和原来的普通版一样只做转发；在「设置 → 功能 → 短信应用」打开后，才多出下面这些：
 
-| | 普通版 `NyaSmsForward-Node_<版本>.apk` | 完整版 `NyaSmsForward-Node-Full_<版本>.apk` |
+| | 关闭（默认） | 开启 |
 |---|---|---|
-| 包名 | `app.nya.smsforward.node`（原有安装原地升级） | `app.nya.smsforward.node.full` |
 | 转发、下发、同步 | ✓ | ✓（「转发」标签页，功能相同） |
 | 手机上收发短信、会话列表 | — | ✓（「短信」标签页） |
 | 验证码识别、通知里一键复制 | — | ✓（规则与服务端 `sms/code.go` 相同） |
@@ -22,11 +21,25 @@ NyaSmsForward 的**接收端**（Android，Kotlin + Jetpack Compose）：装在�
 | 上报状态 | 仅「转发」页最近收到 | ✓ 会话里每条短信标注“已上报 / 待上报 / 上报被拒”，会话列表显示最新一条已上报（✓）或“待上报 N”“上报失败”；按号码、内容和时间与上报队列匹配，只保留最近一个月（最多 5000 条已完成记录）的状态 |
 | 滑动与多选 | — | ✓ 会话右滑标为已读 / 未读、左滑删除（可撤销）；长按进入多选，批量已读、删除、拦截号码；会话内多选复制 / 删除；拦截记录和回收站同样支持滑动和多选 |
 
-Android 4.4 起只有**默认短信应用**能写短信库，普通 App 的删除会被系统静默忽略（服务端审计日志会记成 `denied:not_default_sms_app`）。完整版实现了成为默认短信应用所需的组件（`SMS_DELIVER` / `WAP_PUSH_DELIVER` 接收器、来电“短信回复”服务、`SENDTO` 入口），设为默认后由它负责把收到和发出的短信写入短信库。彩信暂不支持显示，只提示“收到一条彩信”。
+Android 4.4 起只有**默认短信应用**能写短信库，普通 App 的删除会被系统静默忽略（服务端审计日志会记成 `denied:not_default_sms_app`）。成为默认短信应用所需的组件（`SMS_DELIVER` / `WAP_PUSH_DELIVER` 接收器、来电“短信回复”服务、`SENDTO` 入口 `.SmsEntry`）在清单里是**关闭**的，开关打开时才用 `PackageManager.setComponentEnabledSetting` 启用（`inbox/SmsAppFeature.kt`），所以关闭时本 App 不会出现在系统的“默认短信应用”列表里，也不会申请那些权限。设为默认后由它负责把收到和发出的短信写入短信库。彩信暂不支持显示，只提示“收到一条彩信”。
 
-被拦截的短信不写入系统短信库、不弹通知，保存在本 App 的数据库里 30 天，可以“放回收件箱”或“信任这个号码”。拦截只影响手机：上报走的是 `SMS_RECEIVED`，和普通版一样照常上报到平台。
+- **打开**：先启用组件，再弹系统的“设为默认短信应用”对话框。拒绝也可以：能看短信，但不能发送和删除。
+- **关闭**：如果本 App 还是默认短信应用，先引导去系统设置换回系统短信，换好后自动关闭组件；顺序反过来的话，新短信会没有应用保存。
+- 每次进程启动和刷新界面时会校正一次：开关、组件、“是不是默认短信应用”三者不一致时按上面的规则改正（只要还是默认短信应用，组件就保持开启）。
+
+被拦截的短信不写入系统短信库、不弹通知，保存在本 App 的数据库里 30 天，可以“放回收件箱”或“信任这个号码”。拦截只影响手机：上报走的是 `SMS_RECEIVED`，和关闭短信应用时一样照常上报到平台。
 
 智能识别默认开启“博彩色情”和“诈骗风险”（几乎不会误伤正常短信；老用户升级后也会自动打开这两项，只打开这一次，之后以你的设置为准），“推广营销”和“贷款金融”默认关闭。规则都偏保守：单个普通词不会触发，要么是基本只有骚扰短信才用的说法，要么是多个信号同时出现（如多个促销词 + 链接、个人号码发来的“积分清零 / ETC 停用” + 链接）；会忽略骚扰短信里故意插入的空格和符号（“贷 款”“博*彩”）。
+
+### 从旧的完整版迁移
+
+旧的完整版（`app.nya.smsforward.node.full`）包名不同，不能原地升级。迁移期间 Release 里还会带一个 `NyaSmsForward-Node-Full_<版本>.apk`（Gradle flavor `legacyFull`，代码相同）作为它的最后一次更新：
+
+1. 旧版在应用内更新到这个版本后，顶部会提示“完整版已合并到新版”，可以直接下载安装新版。
+2. 新版启动时发现旧版，提示迁移。数据经旧版里的 `LegacyExportProvider` 交过来，它只接受**同一签名**的标准版调用。
+   - 新版还没配对：设置、**配对令牌**、待上报队列、回收站、拦截规则和拦截记录全部搬过来，平台上还是同一台设备，不用重新配对。
+   - 新版已经配对过（两个都装过的人）：保留新版自己的配对，只搬回收站和拦截；旧版那台设备可以在网页上删掉。
+3. 搬完后旧版清掉自己的令牌、停止上报；新版打开“短信应用”开关，引导设为默认短信应用，再引导卸载旧版。
 
 ## 仓库关系
 
@@ -86,7 +99,7 @@ NyaSmsForward 由三个独立仓库组成，互不依赖代码，只通过服务
 # 在 nyasmsforward-server 仓库，用一个全新的空数据目录启动服务
 $env:NYASMS_LISTEN = "127.0.0.1:18081"; $env:NYASMS_DATA = "$env:TEMP\nsf-e2e"; go run ./cmd/server
 # 在本仓库
-$env:NYASMS_E2E_URL = "http://127.0.0.1:18081"; ./gradlew testLiteDebugUnitTest --tests "*RealServerE2ETest"
+$env:NYASMS_E2E_URL = "http://127.0.0.1:18081"; ./gradlew testStandardDebugUnitTest --tests "*RealServerE2ETest"
 ```
 
 它会自己完成管理员设置、生成配对码，然后覆盖：配对、收信、拼接、上报、去重、吊销、重新配对、补传、改地址。另一个 `SendE2ETest`（同样受 `NYASMS_E2E_URL` 控制，可对同一台服务器连着跑）用一个“回环收发器”代替 SmsManager，覆盖真实 WebSocket 上的：回复走原来的卡、策略取较严者、手机本地策略拒绝服务器以为允许的新发、吊销后通道以 `4401` 关闭并停止重试。
@@ -98,17 +111,17 @@ $env:NYASMS_E2E_URL = "http://127.0.0.1:18081"; ./gradlew testLiteDebugUnitTest 
 需要 JDK 17 和 Android SDK（`ANDROID_HOME`，含 platform 36）。
 
 ```powershell
-./gradlew testLiteDebugUnitTest testFullDebugUnitTest   # 单元测试（两个版本）
-./gradlew lintLiteDebug lintFullDebug                    # Android Lint
-./gradlew assembleDebug                                  # app/build/outputs/apk/{lite,full}/debug/*.apk
+./gradlew testStandardDebugUnitTest testLegacyFullDebugUnitTest   # 单元测试
+./gradlew lintStandardDebug lintLegacyFullDebug                    # Android Lint
+./gradlew assembleDebug                                            # app/build/outputs/apk/{standard,legacyFull}/debug/*.apk
 ```
 
 - 版本号只在 `VERSION`（`MAJOR.MINOR.PATCH`）：`versionName` 取它，`versionCode = major*1000000 + minor*1000 + patch`。
-- 包名 `app.nya.smsforward.node`（完整版加后缀 `.full`），`minSdk 26`，`compileSdk` / `targetSdk` 36。
+- 包名 `app.nya.smsforward.node`（迁移用的 `legacyFull` 加后缀 `.full`），`minSdk 26`，`compileSdk` / `targetSdk` 36。
 
 ## 发布
 
-推送与 `VERSION` 匹配的标签（如 `v0.1.0`）后，`release` 工作流会校验版本、跑 lint 和单元测试、用仓库 secrets 里的 keystore 签名构建 `assembleRelease`，核验签名后把普通版 `NyaSmsForward-Node_<版本>.apk`、完整版 `NyaSmsForward-Node-Full_<版本>.apk` 及各自的 `.sha256` 上传到 GitHub Release。需要配置的仓库 secrets：
+推送与 `VERSION` 匹配的标签（如 `v0.1.0`）后，`release` 工作流会校验版本、跑 lint 和单元测试、用仓库 secrets 里的 keystore 签名构建 `assembleRelease`，核验签名后把 `NyaSmsForward-Node_<版本>.apk`、迁移期间给旧完整版用的 `NyaSmsForward-Node-Full_<版本>.apk` 及各自的 `.sha256` 上传到 GitHub Release。需要配置的仓库 secrets：
 
 ```text
 ANDROID_KEYSTORE_BASE64    keystore 文件的 base64

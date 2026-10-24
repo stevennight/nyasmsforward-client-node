@@ -15,7 +15,7 @@ data class TrashedSms(
     val deletedAt: Long,
 )
 
-/** The full edition's recycle bin (docs: README「两个版本」). Entries older than [RETENTION_MS] are purged. */
+/** The SMS-app feature's recycle bin (docs: README「短信应用」). Entries older than [RETENTION_MS] are purged. */
 class SmsTrash(private val db: SqlDb) {
     init {
         Schema.migrate(db)

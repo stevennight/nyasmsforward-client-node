@@ -5,7 +5,7 @@ import app.nya.smsforward.node.data.SmsTrash
 import app.nya.smsforward.node.data.TrashedSms
 
 /**
- * The full edition's recycle bin on top of the system SMS database: deleting copies a message into [SmsTrash] and then
+ * The SMS-app feature's recycle bin on top of the system SMS database: deleting copies a message into [SmsTrash] and then
  * removes it from the provider; restoring writes it back. Only works while this app is the default SMS app.
  */
 class Recycler(context: Context, private val trash: SmsTrash, private val now: () -> Long = System::currentTimeMillis) {

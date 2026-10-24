@@ -3,7 +3,7 @@ package app.nya.smsforward.node.data
 import app.nya.smsforward.node.sms.BlockRule
 import app.nya.smsforward.node.sms.SpamCategory
 
-/** An SMS the full edition intercepted: kept here instead of the system inbox. */
+/** An SMS the SMS-app feature intercepted: kept here instead of the system inbox. */
 data class BlockedSms(
     val id: Long = 0,
     val address: String,

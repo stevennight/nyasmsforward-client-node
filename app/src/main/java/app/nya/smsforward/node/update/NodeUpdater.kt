@@ -69,13 +69,19 @@ private val json = Json { ignoreUnknownKeys = true }
 
 /** Checks and installs the signed APK published by this repository's release workflow. */
 object NodeUpdater {
+    const val STANDARD_APK_PREFIX = "NyaSmsForward-Node"
+
     private val http = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
         .readTimeout(60, TimeUnit.SECONDS)
         .callTimeout(90, TimeUnit.SECONDS)
         .build()
 
-    fun check(currentVersion: String): UpdateCheck {
+    /**
+     * The newest release's APK for this app ([apkPrefix] defaults to its own). The old full edition also uses it to fetch
+     * the standard app ([STANDARD_APK_PREFIX], [allowSameVersion]: same version number, different package).
+     */
+    fun check(currentVersion: String, apkPrefix: String = BuildConfig.APK_NAME_PREFIX, allowSameVersion: Boolean = false): UpdateCheck {
         val current = parseStableVersion(currentVersion)
             ?: return UpdateCheck.Failed("当前版本号无效：$currentVersion")
         return try {
@@ -83,10 +89,10 @@ object NodeUpdater {
             if (release.draft || release.prerelease) return UpdateCheck.Failed("GitHub 返回了草稿或预发行版本")
             val latest = parseStableVersion(release.tag_name.removePrefix("v"))
                 ?: return UpdateCheck.Failed("Release 标签不是稳定版本：${release.tag_name}")
-            if (latest <= current) return UpdateCheck.UpToDate(currentVersion)
+            if (latest < current || (latest == current && !allowSameVersion)) return UpdateCheck.UpToDate(currentVersion)
 
             val version = latest.text
-            val apkName = "${BuildConfig.APK_NAME_PREFIX}_${version}.apk" // each edition updates only to its own APK
+            val apkName = "${apkPrefix}_${version}.apk" // each package updates only to its own APK
             val checksumName = "$apkName.sha256"
             val apk = release.assets.singleOrNull { it.name == apkName }
                 ?: return UpdateCheck.Failed("最新 Release 没有兼容的 APK：$apkName")

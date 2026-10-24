@@ -35,10 +35,10 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@ed408507eac070d1f99cc633dbcf757c94c7933a # v4
 
-      - name: Lint, unit test and assemble debug APKs (lite + full)
+      - name: Lint, unit test and assemble debug APKs (standard + legacy full)
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon lintLiteDebug lintFullDebug testLiteDebugUnitTest testFullDebugUnitTest assembleDebug
+          ./gradlew --no-daemon lintStandardDebug lintLegacyFullDebug testStandardDebugUnitTest testLegacyFullDebugUnitTest assembleDebug
 
       - name: Upload debug APKs
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

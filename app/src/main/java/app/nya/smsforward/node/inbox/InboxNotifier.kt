@@ -19,7 +19,7 @@ import app.nya.smsforward.node.R
 import app.nya.smsforward.node.sms.SmsInsight
 import app.nya.smsforward.node.sms.VerificationCode
 
-/** New-message notifications of the full edition, with "复制验证码" when the message carries a code. */
+/** New-message notifications of the SMS-app feature, with "复制验证码" when the message carries a code. */
 object InboxNotifier {
     private const val CHANNEL = "messages"
 

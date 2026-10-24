@@ -51,7 +51,7 @@ jobs:
       - name: Verify source
         run: |
           chmod +x gradlew
-          ./gradlew --no-daemon lintLiteDebug lintFullDebug testLiteDebugUnitTest testFullDebugUnitTest
+          ./gradlew --no-daemon lintStandardDebug lintLegacyFullDebug testStandardDebugUnitTest testLegacyFullDebugUnitTest
 
       - name: Restore Android signing key
         run: |
@@ -65,7 +65,7 @@ jobs:
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$keystore_path"
           echo "ANDROID_KEYSTORE_FILE=$keystore_path" >> "$GITHUB_ENV"
 
-      - name: Build signed release APKs (lite + full)
+      - name: Build signed release APKs (standard + legacy full)
         run: ./gradlew --no-daemon assembleRelease
 
       - name: Verify APK signature and collect release files
@@ -74,12 +74,13 @@ jobs:
         run: |
           apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)"
           mkdir -p dist
-          # The lite APK keeps the original name so installed lite apps keep finding their updates.
-          for edition in lite full; do
+          # The standard APK keeps the original name so installed apps keep finding their updates. The legacy full APK
+          # is the old full edition's last update: it tells its users to move to the standard app and hands its data over.
+          for edition in standard legacyFull; do
             apk="app/build/outputs/apk/${edition}/release/app-${edition}-release.apk"
             test -f "$apk" || { echo "Signed $edition APK was not produced (is the keystore configured?)" >&2; exit 1; }
             "$apksigner" verify --print-certs "$apk"
-            if [ "$edition" = lite ]; then name="NyaSmsForward-Node_${VERSION}.apk"; else name="NyaSmsForward-Node-Full_${VERSION}.apk"; fi
+            if [ "$edition" = standard ]; then name="NyaSmsForward-Node_${VERSION}.apk"; else name="NyaSmsForward-Node-Full_${VERSION}.apk"; fi
             cp "$apk" "dist/$name"
             (cd dist && sha256sum "$name" > "$name.sha256")
           done

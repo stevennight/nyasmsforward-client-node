@@ -11,7 +11,7 @@ import android.telephony.SmsManager
 import android.util.Log
 
 /**
- * Sends an SMS the user typed in the full edition. The message is stored in the outbox first (as the default SMS app we
+ * Sends an SMS the user typed in the inbox. The message is stored in the outbox first (as the default SMS app we
  * are the only one who stores it), then moved to "sent" or "failed" when the radio reports back.
  */
 object LocalSender {

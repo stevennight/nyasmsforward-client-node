@@ -14,7 +14,7 @@ import app.nya.smsforward.node.net.SimInfo
 /**
  * [SmsBox] on the system SMS provider. Every read needs READ_SMS; without it the box simply looks empty.
  *
- * [recycle] (full edition) moves a matched message to the phone's recycle bin instead of deleting it for good.
+ * [recycle] (SMS-app feature) moves a matched message to the phone's recycle bin instead of deleting it for good.
  */
 class AndroidSmsBox(
     context: Context,

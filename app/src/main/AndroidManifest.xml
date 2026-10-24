@@ -46,8 +46,23 @@
     <!-- Needed for platform-side deletion when this app is allowed to write the SMS provider. -->
     <uses-permission android:name="android.permission.WRITE_SMS" />
 
+    <!--
+      The "短信应用" feature (off by default). MMS arrives by WAP push and a default SMS app must accept it; Android grants
+      these to the default SMS app by itself. READ_CONTACTS is optional (names instead of numbers in the inbox) and asked
+      for from the inbox only.
+    -->
+    <uses-permission android:name="android.permission.RECEIVE_MMS" />
+    <uses-permission android:name="android.permission.RECEIVE_WAP_PUSH" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+
     <!-- The receiver phone may be a tablet with a SIM or a phone without telephony hardware in tests. -->
     <uses-feature android:name="android.hardware.telephony" android:required="false" />
+
+    <!-- The old full edition and this app find each other to move data across (migrate/); nothing else is queried. -->
+    <queries>
+        <package android:name="app.nya.smsforward.node" />
+        <package android:name="app.nya.smsforward.node.full" />
+    </queries>
 
     <!--
       usesCleartextTraffic only lifts the platform block on http://. The app itself refuses http:// unless the address is
@@ -117,6 +132,74 @@
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
         </receiver>
+
+        <!--
+          The "短信应用" feature: what Android requires of a default SMS app (SMS_DELIVER / WAP_PUSH_DELIVER receivers, the
+          "respond via message" service and a SENDTO activity). Only the default SMS app may write to the SMS database,
+          which is what deleting a message from the phone needs. These four ship disabled (the placeholder is "true" only
+          in the legacyFull flavor), so the app does not even appear in the system's list of SMS apps until the user
+          switches the feature on; inbox/SmsAppFeature.kt enables and disables them.
+        -->
+
+        <!-- Other apps' "send SMS to …" (dialer, contacts, browser links) opens the conversation here. An alias, because a
+             single intent filter of MainActivity could not be switched off on its own. -->
+        <activity-alias
+            android:name=".SmsEntry"
+            android:targetActivity=".MainActivity"
+            android:enabled="${smsAppComponentsEnabled}"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <action android:name="android.intent.action.SENDTO" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="sms" />
+                <data android:scheme="smsto" />
+                <data android:scheme="mms" />
+                <data android:scheme="mmsto" />
+            </intent-filter>
+        </activity-alias>
+
+        <!-- SMS_DELIVER: only the system can send it (BROADCAST_SMS), and only to the default SMS app. -->
+        <receiver
+            android:name=".inbox.SmsDeliverReceiver"
+            android:enabled="${smsAppComponentsEnabled}"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter>
+                <action android:name="android.provider.Telephony.SMS_DELIVER" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name=".inbox.MmsDeliverReceiver"
+            android:enabled="${smsAppComponentsEnabled}"
+            android:exported="true"
+            android:permission="android.permission.BROADCAST_WAP_PUSH">
+            <intent-filter>
+                <action android:name="android.provider.Telephony.WAP_PUSH_DELIVER" />
+                <data android:mimeType="application/vnd.wap.mms-message" />
+            </intent-filter>
+        </receiver>
+
+        <service
+            android:name=".inbox.RespondViaMessageService"
+            android:enabled="${smsAppComponentsEnabled}"
+            android:exported="true"
+            android:permission="android.permission.SEND_RESPOND_VIA_MESSAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.RESPOND_VIA_MESSAGE" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="sms" />
+                <data android:scheme="smsto" />
+                <data android:scheme="mms" />
+                <data android:scheme="mmsto" />
+            </intent-filter>
+        </service>
+
+        <!-- Radio results of messages typed in the app, and the notification buttons. Not exported, always on. -->
+        <receiver android:name=".inbox.LocalSendReceiver" android:exported="false" />
+        <receiver android:name=".inbox.InboxActionReceiver" android:exported="false" />
     </application>
 
 </manifest>

@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
@@ -26,13 +27,20 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import app.nya.smsforward.node.BuildConfig
+import app.nya.smsforward.node.migrate.LegacyMigration
+import app.nya.smsforward.node.migrate.LegacyStatus
+import app.nya.smsforward.node.migrate.MigrationResult
 import app.nya.smsforward.node.node.ConnectionKind
 import app.nya.smsforward.node.node.NodeRuntime
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 private enum class Screen { STATUS, SETTINGS }
 
@@ -42,11 +50,13 @@ private enum class Tab { MESSAGES, FORWARD }
 data class OpenRequest(val threadId: Long, val address: String, val draft: String = "", val nonce: Long = System.nanoTime())
 
 /**
- * The lite edition is the forwarding screens only. The full edition adds a "短信" tab (the phone's own inbox) in front
- * of them; forwarding works the same in both.
+ * The forwarding screens; with the "短信应用" feature switched on, a "短信" tab (the phone's own inbox) in front of
+ * them. Forwarding works the same either way. The move off the old full edition shows first while it is pending.
  */
 @Composable
 fun NodeApp(runtime: NodeRuntime, resumeTick: Int, openRequest: OpenRequest? = null) {
+    val context = LocalContext.current
+    val state by runtime.state.collectAsState()
     // While visible, keep the numbers fresh (a new SMS or an upload finishing changes them from other threads).
     LaunchedEffect(resumeTick) {
         while (true) {
@@ -54,7 +64,35 @@ fun NodeApp(runtime: NodeRuntime, resumeTick: Int, openRequest: OpenRequest? = n
             delay(3_000)
         }
     }
-    if (BuildConfig.FULL_EDITION) FullApp(runtime, resumeTick, openRequest) else ForwardingScreens(runtime, resumeTick)
+
+    var legacy by remember { mutableStateOf<LegacyStatus>(LegacyStatus.None) }
+    var migrated by remember { mutableStateOf<MigrationResult?>(null) }
+    LaunchedEffect(resumeTick) { legacy = withContext(Dispatchers.IO) { LegacyMigration.detect(context) } }
+    if (migrated != null || legacy != LegacyStatus.None) {
+        Box(Modifier.fillMaxSize().safeDrawingPadding()) {
+            MigrationScreen(
+                legacy, migrated, runtime,
+                onMigrated = { migrated = it },
+                onClose = {
+                    migrated = null
+                    legacy = LegacyStatus.None
+                },
+            )
+        }
+        return
+    }
+
+    val main: @Composable () -> Unit = {
+        if (state.smsApp) FullApp(runtime, resumeTick, openRequest) else ForwardingScreens(runtime, resumeTick)
+    }
+    if (BuildConfig.LEGACY_FULL) {
+        Column(Modifier.fillMaxSize()) {
+            LegacyNotice(resumeTick)
+            Box(Modifier.weight(1f).consumeWindowInsets(WindowInsets.statusBars)) { main() }
+        }
+    } else {
+        main()
+    }
 }
 
 @Composable

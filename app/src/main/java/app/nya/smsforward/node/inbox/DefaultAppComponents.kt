@@ -15,9 +15,9 @@ import app.nya.smsforward.node.sms.SmsAssembler
 import app.nya.smsforward.node.sms.SmsPart
 
 /*
- * The components Android requires before it lets the full edition become the default SMS app (registered only in
- * src/full/AndroidManifest.xml). Forwarding to the server does not live here: SMS_RECEIVED still reaches
- * sms.SmsReceiver exactly as in the lite edition, so both editions report messages the same way.
+ * The components Android requires before it lets this app become the default SMS app (registered disabled in the
+ * manifest, switched on with the "短信应用" feature, see [SmsAppFeature]). Forwarding to the server does not live here:
+ * SMS_RECEIVED still reaches sms.SmsReceiver whether the feature is on or not, so messages are reported the same way.
  */
 
 /**

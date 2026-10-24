@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import app.nya.smsforward.node.inbox.SmsAppFeature
 import app.nya.smsforward.node.inbox.recipientOf
 import app.nya.smsforward.node.node.NodeRuntime
 import app.nya.smsforward.node.service.NodeService
@@ -21,7 +22,7 @@ class MainActivity : ComponentActivity() {
     // changed in the system settings.
     private var resumeTick by mutableIntStateOf(0)
 
-    // Full edition: the conversation a notification or another app's "send SMS to …" asked for.
+    // "短信应用" feature: the conversation a notification or another app's "send SMS to …" asked for.
     private var openRequest by mutableStateOf<OpenRequest?>(null)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -49,7 +50,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openRequestOf(intent: Intent?): OpenRequest? {
-        if (intent == null || !BuildConfig.FULL_EDITION) return null
+        if (intent == null || !SmsAppFeature.isOn(this)) return null
         if (intent.hasExtra(EXTRA_ADDRESS)) {
             return OpenRequest(intent.getLongExtra(EXTRA_THREAD_ID, 0), intent.getStringExtra(EXTRA_ADDRESS).orEmpty())
         }

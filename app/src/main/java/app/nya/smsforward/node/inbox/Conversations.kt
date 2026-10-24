@@ -5,7 +5,7 @@ import app.nya.smsforward.node.sms.PeerKey
 import app.nya.smsforward.node.sms.SmsInsight
 import app.nya.smsforward.node.sms.VerificationCode
 
-/** One row of the platform SMS table, as the full edition's inbox shows it. */
+/** One row of the platform SMS table, as the SMS-app feature's inbox shows it. */
 data class SmsRow(
     val id: Long,
     val threadId: Long,

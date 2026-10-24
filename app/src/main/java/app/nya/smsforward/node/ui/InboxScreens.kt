@@ -142,7 +142,7 @@ private fun rememberSmsChanges(): Int {
     return tick
 }
 
-/** The full edition asks to become the default SMS app; everything that writes needs it. */
+/** The SMS-app feature asks to become the default SMS app; everything that writes needs it. */
 @Composable
 private fun DefaultAppCard(onRequest: () -> Unit) {
     Surface(

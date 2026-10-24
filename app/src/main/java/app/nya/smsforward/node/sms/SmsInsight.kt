@@ -1,7 +1,7 @@
 package app.nya.smsforward.node.sms
 
 /**
- * What the full edition recognizes in a message besides the verification code: a bank account movement or a parcel
+ * What the SMS-app feature recognizes in a message besides the verification code: a bank account movement or a parcel
  * pickup code. Like [VerificationCode] it is conservative: a message that does not clearly match gets no card at all.
  */
 sealed class SmsInsight {

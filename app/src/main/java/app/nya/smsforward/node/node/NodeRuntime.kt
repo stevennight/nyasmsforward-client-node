@@ -13,9 +13,12 @@ import app.nya.smsforward.node.data.SendLedger
 import app.nya.smsforward.node.data.SqliteOutbox
 import app.nya.smsforward.node.data.SmsBlockList
 import app.nya.smsforward.node.data.SmsTrash
+import app.nya.smsforward.node.data.SqlDb
 import app.nya.smsforward.node.data.SqliteSendLedger
 import app.nya.smsforward.node.inbox.Blocker
 import app.nya.smsforward.node.inbox.Recycler
+import app.nya.smsforward.node.inbox.SmsAppFeature
+import app.nya.smsforward.node.inbox.SmsStore
 import app.nya.smsforward.node.net.ChannelState
 import app.nya.smsforward.node.net.OkHttpNodeApi
 import app.nya.smsforward.node.net.SimInfo
@@ -71,6 +74,10 @@ data class UiState(
     /** The SIM inventory Android currently exposes to this app; shown locally for diagnosis. */
     val sims: List<SimInfo> = emptyList(),
     val manualSimNumbers: Map<Int, String> = emptyMap(),
+    /** The "短信应用" feature (inbox/SmsAppFeature.kt) and whether this app is the default SMS app right now. */
+    val smsApp: Boolean = false,
+    val smsAppTurningOff: Boolean = false,
+    val isDefaultSmsApp: Boolean = false,
 )
 
 /**
@@ -162,7 +169,8 @@ class NodeRuntime private constructor(private val app: Context) {
     }
 
     // --- sent messages and history (M4) ---
-    // Full edition: a platform deletion goes to the phone's recycle bin (30 days) instead of being final.
+    // "短信应用" feature: a platform deletion goes to the phone's recycle bin (30 days) instead of being final. The box
+    // only uses it while this app is the default SMS app, the only time a deletion can succeed at all.
     val smsTrash by lazy { SmsTrash(sqlDb) }
     val recycler by lazy { Recycler(app, smsTrash) }
     val blocker by lazy { Blocker(app, SmsBlockList(sqlDb)) }
@@ -170,8 +178,28 @@ class NodeRuntime private constructor(private val app: Context) {
         AndroidSmsBox(
             app,
             sims = { SimSlots.activeSims(app, settings.manualSimNumbers) },
-            recycle = if (BuildConfig.FULL_EDITION) { id -> recycler.recycle(id, Recycler.ORIGIN_PLATFORM) } else null,
+            recycle = { id -> recycler.recycle(id, Recycler.ORIGIN_PLATFORM) },
         )
+    }
+
+    /** The node.db handle, for the migration from the old full edition (migrate/). */
+    internal val database: SqlDb get() = sqlDb
+
+    /** Switches the "短信应用" feature. Switching off while still the default SMS app waits for the user (see SmsAppFeature). */
+    fun applySmsApp(on: Boolean): SmsAppFeature.OffResult {
+        val result = if (on) {
+            SmsAppFeature.turnOn(app)
+            SmsAppFeature.OffResult.DONE
+        } else {
+            SmsAppFeature.turnOff(app)
+        }
+        scope.launch { refresh() }
+        return result
+    }
+
+    fun cancelSmsAppTurnOff() {
+        SmsAppFeature.cancelTurnOff(app)
+        scope.launch { refresh() }
     }
     val sentSync by lazy { SentSync(settings, smsBox, outbox, ledger, System::currentTimeMillis) }
 
@@ -196,12 +224,15 @@ class NodeRuntime private constructor(private val app: Context) {
         scope.launch { refresh() }
     }
 
-    private val _state = MutableStateFlow(UiState())
+    // Seeded with the switch, so a notification tap does not show the forwarding screens until the first refresh.
+    private val _state = MutableStateFlow(UiState(smsApp = SmsAppFeature.isOn(app)))
     val state: StateFlow<UiState> = _state.asStateFlow()
 
     /** Recomputes what the screens show. Safe to call from anywhere; the database is read on the IO dispatcher. */
     suspend fun refresh() {
         val next = withContext(Dispatchers.IO) {
+            // The user may have just picked another default SMS app in the system settings, which completes a switch-off.
+            SmsAppFeature.reconcile(app)
             val paired = settings.serverUrl != null && settings.deviceId != null
             UiState(
                 connection = when {
@@ -224,6 +255,9 @@ class NodeRuntime private constructor(private val app: Context) {
                 backfillDays = settings.backfillDays,
                 sims = SimSlots.activeSims(app, settings.manualSimNumbers),
                 manualSimNumbers = settings.manualSimNumbers,
+                smsApp = SmsAppFeature.isOn(app),
+                smsAppTurningOff = SmsAppFeature.isTurningOff(app),
+                isDefaultSmsApp = SmsStore.isDefaultSmsApp(app),
             )
         }
         _state.value = next

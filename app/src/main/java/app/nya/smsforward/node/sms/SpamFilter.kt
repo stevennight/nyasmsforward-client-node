@@ -1,6 +1,6 @@
 package app.nya.smsforward.node.sms
 
-/** One interception rule of the full edition (docs: README「两个版本」). */
+/** One interception rule of the SMS-app feature (docs: README「短信应用」). */
 data class BlockRule(val id: Long = 0, val kind: String, val value: String) {
     companion object {
         /** A number or sender id; a trailing "*" matches every number starting with it ("1069*"). */

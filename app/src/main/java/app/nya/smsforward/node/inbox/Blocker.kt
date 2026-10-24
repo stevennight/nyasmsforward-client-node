@@ -8,7 +8,7 @@ import app.nya.smsforward.node.sms.PeerKey
 import app.nya.smsforward.node.sms.SpamFilter
 
 /**
- * The full edition's "骚扰拦截": an incoming SMS that matches a rule goes to [SmsBlockList] instead of the system inbox
+ * The SMS-app feature's "骚扰拦截": an incoming SMS that matches a rule goes to [SmsBlockList] instead of the system inbox
  * and raises no notification. Forwarding is not affected: SMS_RECEIVED still reports it to the server.
  */
 class Blocker(private val context: Context, val list: SmsBlockList, private val now: () -> Long = System::currentTimeMillis) {

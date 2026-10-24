@@ -22,21 +22,27 @@ android {
         versionCode = versionParts[0] * 1_000_000 + versionParts[1] * 1_000 + versionParts[2]
     }
 
-    // Two editions from one codebase (docs/版本.md). "lite" is the forwarding receiver and keeps the original package, so
-    // existing installs update in place. "full" is a separate app that can also be the phone's default SMS app, which
-    // Android requires before anything may write (e.g. delete from) the SMS database.
+    // One app. Being the phone's default SMS app (which Android requires before anything may write, e.g. delete from,
+    // the SMS database) is a feature switched on in the settings: its components ship disabled and are enabled at that
+    // moment (inbox/SmsAppFeature.kt).
+    //
+    // "legacyFull" exists only for the move off the old full edition, a separate app (package suffix ".full") that
+    // cannot update in place into this one: the same code, with its SMS-app components on as before, a notice that it was
+    // merged, and a provider that hands its data and pairing to the standard app (migrate/). Drop it after a few releases.
     flavorDimensions += "edition"
     productFlavors {
-        create("lite") {
+        create("standard") {
             dimension = "edition"
-            buildConfigField("boolean", "FULL_EDITION", "false")
+            buildConfigField("boolean", "LEGACY_FULL", "false")
             buildConfigField("String", "APK_NAME_PREFIX", "\"NyaSmsForward-Node\"")
+            manifestPlaceholders["smsAppComponentsEnabled"] = "false"
         }
-        create("full") {
+        create("legacyFull") {
             dimension = "edition"
             applicationIdSuffix = ".full"
-            buildConfigField("boolean", "FULL_EDITION", "true")
+            buildConfigField("boolean", "LEGACY_FULL", "true")
             buildConfigField("String", "APK_NAME_PREFIX", "\"NyaSmsForward-Node-Full\"")
+            manifestPlaceholders["smsAppComponentsEnabled"] = "true"
         }
     }
 

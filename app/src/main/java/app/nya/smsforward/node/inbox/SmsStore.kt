@@ -14,7 +14,7 @@ import android.provider.Telephony
 import android.util.Log
 
 /**
- * The full edition's access to the platform SMS database.
+ * The SMS-app feature's access to the platform SMS database.
  *
  * Reading needs READ_SMS. Every write (inserting what arrived or was sent, marking read, deleting) only takes effect
  * while this app is the default SMS app: for anyone else the provider silently ignores it. Being the default app also
