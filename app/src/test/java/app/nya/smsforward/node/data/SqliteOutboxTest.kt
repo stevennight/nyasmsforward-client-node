@@ -41,6 +41,19 @@ class SqliteOutboxTest {
     }
 
     @Test
+    fun `reported rows remember the platform id, for deleting the platform copy later`() {
+        val box = outbox()
+        listOf(1, 2).forEach { box.enqueue(item(it), it.toLong()) }
+        val ids = box.pending(10).map { it.id }
+        box.markDone(ids, now = 100)
+        box.setServerIds(mapOf(ids[0] to 1042L))
+
+        val byBody = box.reportRecords().associateBy { it.body }
+        assertEquals(1042L, byBody.getValue("body 1").serverId)
+        assertNull(byBody.getValue("body 2").serverId)
+    }
+
+    @Test
     fun `finished rows leave the pending list, and dead ones keep their reason`() {
         val box = outbox()
         listOf(1, 2, 3).forEach { box.enqueue(item(it), it.toLong()) }

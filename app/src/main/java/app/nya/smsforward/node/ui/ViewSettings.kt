@@ -1,6 +1,10 @@
 package app.nya.smsforward.node.ui
 
+import android.Manifest
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,6 +31,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -71,7 +76,7 @@ fun ViewSections(runtime: NodeRuntime) {
             Switch(checked = state.enabled, onCheckedChange = { view.setEnabled(it) })
         }
         Text(
-            "不需要新的权限。现在只在打开 App 时实时更新；后台通知、回复和删除在后续版本加入。",
+            "不需要新的权限（后台通知要通知权限）。能不能回复、新发、删除，看网页里给这个客户端勾了哪些权限。",
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
@@ -99,6 +104,19 @@ private fun ViewAccountCard(runtime: NodeRuntime, state: ViewState) {
             for (s in all) Pill(Scopes.label(s), if (s in state.scopes) Tone.OK else Tone.INFO)
         }
         if (Scopes.READ !in state.scopes) Warning("这个客户端没有“查看”权限，平台上的短信读不到。可以在网页的设备页里勾上。")
+        BackgroundAlertsRow(runtime, state)
+        if (state.ownInInbox) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                    Text("在「短信」里删除时，平台上的也删", fontWeight = FontWeight.Medium)
+                    Text(
+                        "本机短信在「短信」页删掉时，平台上对应的那条一起移到平台回收站（撤销时一起恢复）。需要“删除”权限。",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = state.deleteOnPlatform, enabled = Scopes.DELETE in state.scopes, onCheckedChange = { runtime.view.setDeleteOnPlatform(it) })
+            }
+        }
         Text("令牌长期有效，加密保存在本机，和接收端的令牌分开。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(enabled = !busy, onClick = {
@@ -130,6 +148,37 @@ private fun ViewAccountCard(runtime: NodeRuntime, state: ViewState) {
             dismissButton = { TextButton(onClick = { confirm = false }) { Text("取消") } },
         )
     }
+}
+
+/**
+ * 「后台通知」: keeps the stream open behind the app (in the foreground service, one ongoing notification) so new
+ * platform messages alert. Asks for the notification permission when switched on (Android 13+).
+ */
+@Composable
+private fun BackgroundAlertsRow(runtime: NodeRuntime, state: ViewState) {
+    val context = LocalContext.current
+    var canNotify by remember {
+        mutableStateOf(Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || granted(context, Manifest.permission.POST_NOTIFICATIONS))
+    }
+    val request = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok -> canNotify = ok }
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f).padding(end = 12.dp)) {
+            Text("后台通知", fontWeight = FontWeight.Medium)
+            Text(
+                "App 不在前台时也保持连接，平台上有新短信就弹通知（带“复制验证码”和“标为已读”）。会多一条常驻通知；" +
+                    "本机设为默认短信应用时，本机自己的短信只由「短信」提醒一次。",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(
+            checked = state.backgroundAlerts,
+            onCheckedChange = { on ->
+                runtime.view.setBackgroundAlerts(on)
+                if (on && !canNotify && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) request.launch(Manifest.permission.POST_NOTIFICATIONS)
+            },
+        )
+    }
+    if (state.backgroundAlerts && !canNotify) Warning("没有通知权限，收不到提醒。可以在系统设置里给本 App 打开通知。")
 }
 
 private enum class LoginMode { CODE, ACCOUNT }

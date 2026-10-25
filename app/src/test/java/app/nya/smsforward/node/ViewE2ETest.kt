@@ -138,6 +138,26 @@ class ViewE2ETest {
         assertEquals(2, changed.size)
         withTimeout(10_000) { do { val e = events.receive() } while (e !is ServerEvent.Read) }
         assertIs<ApiResult.Ok<Unit>>(view.markUnread(live.message.id))
+
+        // Sending goes through the receiver phone's policy: this one never said it allows anything.
+        val refused = assertIs<ApiResult.Failure>(view.reply(live.message.id, "收到"))
+        assertEquals("policy_denied", refused.code)
+        assertTrue("下发策略" in app.nya.smsforward.node.view.describeViewFailure(refused))
+        assertEquals("policy_denied", assertIs<ApiResult.Failure>(view.sendNew(nodeSettings.deviceId!!, 1, "13800000000", "你好")).code)
+
+        // The report queue remembers the platform ids (what deleting in the 「短信」 inbox uses), and deleting works.
+        val serverIds = box.reportRecords().mapNotNull { it.serverId }.toSet()
+        assertTrue(live.message.id in serverIds, serverIds.toString())
+        assertEquals(listOf(live.message.id), assertIs<ApiResult.Ok<List<Long>>>(view.deleteMessages(listOf(live.message.id), deletePhone = false)).value)
+        withTimeout(10_000) { do { val e = events.receive() } while (e !is ServerEvent.Deleted) }
+        val bin = assertIs<ApiResult.Ok<List<app.nya.smsforward.node.view.RemoteMessage>>>(view.recycleBin()).value
+        assertTrue(bin.any { it.id == live.message.id && it.deletedAt != null })
+        assertEquals(listOf(live.message.id), assertIs<ApiResult.Ok<List<Long>>>(view.deletePhoneCopies(listOf(live.message.id))).value)
+        assertIs<ApiResult.Ok<Unit>>(view.restore(live.message.id))
+        val back = assertIs<ApiResult.Ok<List<app.nya.smsforward.node.view.RemoteMessage>>>(view.loadThread(thread)).value
+        assertTrue(back.any { it.id == live.message.id })
+        // A whole conversation goes at once.
+        assertEquals(2, assertIs<ApiResult.Ok<Int>>(view.deleteConversations(listOf(thread), deletePhone = false)).value)
         stream.stop()
         job.cancel()
 

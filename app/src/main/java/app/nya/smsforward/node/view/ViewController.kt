@@ -2,6 +2,7 @@ package app.nya.smsforward.node.view
 
 import app.nya.smsforward.node.net.ApiResult
 import app.nya.smsforward.node.net.ConnectionVerdict
+import app.nya.smsforward.node.net.FailureKind
 import app.nya.smsforward.node.net.ServerUrl
 import app.nya.smsforward.node.net.ServerUrlResult
 import app.nya.smsforward.node.node.TokenStore
@@ -35,6 +36,7 @@ data class ViewState(
     val serverUrl: String? = null,
     val deviceName: String? = null,
     val scopes: Set<String> = emptySet(),
+    val backgroundAlerts: Boolean = true,
     val stream: StreamStatus = StreamStatus.IDLE,
     val conversations: List<RemoteConversation> = emptyList(),
     /** Unread messages on the whole platform (the server's count, for the badge). */
@@ -48,14 +50,32 @@ data class ViewState(
     val filter: PlatformFilter = PlatformFilter.All,
     /** This phone's receiver identity, so its own conversations can be labelled 「本机」. */
     val ownDeviceId: String? = null,
+    /**
+     * This phone's own messages are in the 「短信」 tab already (the SMS-app feature is on): "全部" leaves them out
+     * unless [showOwn]; the 「本机」 chip still lists them.
+     */
+    val ownInInbox: Boolean = false,
+    val showOwn: Boolean = false,
+    /** Deleting in the 「短信」 inbox also moves the platform's copy to the platform recycle bin. */
+    val deleteOnPlatform: Boolean = false,
 ) {
+    val canReply: Boolean get() = Scopes.REPLY in scopes
+    val canSend: Boolean get() = Scopes.SEND in scopes
+    val canDelete: Boolean get() = Scopes.DELETE in scopes
+
+    private fun own(c: RemoteConversation) = ownDeviceId != null && c.deviceId == ownDeviceId
+
     /** What the list shows after the phone filters, which are applied here (search and unread go to the server). */
     val shown: List<RemoteConversation>
         get() = when (val f = filter) {
-            PlatformFilter.All, PlatformFilter.Unread -> conversations
-            PlatformFilter.ThisPhone -> conversations.filter { it.deviceId == ownDeviceId }
+            PlatformFilter.All, PlatformFilter.Unread -> if (ownInInbox && !showOwn) conversations.filterNot(::own) else conversations
+            PlatformFilter.ThisPhone -> conversations.filter(::own)
             is PlatformFilter.Phone -> conversations.filter { it.deviceId == f.deviceId }
         }
+
+    /** How many of this phone's conversations "全部" leaves out (for a hint under the list). */
+    val hiddenOwn: Int
+        get() = if (ownInInbox && !showOwn && filter == PlatformFilter.All) conversations.count(::own) else 0
 }
 
 /** What a connect form submit produced. [field] says which input the message belongs to. */
@@ -66,10 +86,44 @@ sealed interface ViewResult {
     enum class Field { URL, CODE, PASSWORD, TOTP }
 }
 
+/** Shows and removes the new-message notifications of the 「平台」 tab (PlatformNotifier on Android). */
+interface PlatformAlerts {
+    fun show(message: RemoteMessage, state: ViewState)
+
+    /** Removes the notification of these conversations ([RemoteMessage.conversationKey]). */
+    fun cancel(conversationKeys: Collection<String>)
+
+    object None : PlatformAlerts {
+        override fun show(message: RemoteMessage, state: ViewState) = Unit
+        override fun cancel(conversationKeys: Collection<String>) = Unit
+    }
+}
+
+/**
+ * Whether a message from the stream deserves a notification: the server says so (new, received, unread, not history),
+ * it was not alerted already (a replay after a reconnect), its conversation is not open on screen, and it is not this
+ * phone's own message while the 「短信」 inbox alerts about it already.
+ */
+internal fun shouldAlert(
+    event: ServerEvent.Message,
+    alreadyAlerted: Boolean,
+    foreground: Boolean,
+    openConversation: String?,
+    ownDeviceId: String?,
+    ownAlertedLocally: Boolean,
+): Boolean {
+    val m = event.message
+    if (!event.notify || !m.incoming || alreadyAlerted) return false
+    if (foreground && openConversation == m.conversationKey) return false
+    if (ownAlertedLocally && ownDeviceId != null && m.deviceId == ownDeviceId) return false
+    return true
+}
+
 /**
  * The 「查看」 feature: the client identity (pairing code or account login, docs/协议.md §3 / §3.1), the platform's
- * conversation list, and the live event stream while the app is in the foreground. Android-free, so it is tested on
- * the JVM; NodeRuntime wires it up.
+ * conversations, sending and deleting, and the live event stream: while the app is visible, and with background
+ * alerts on also behind it, kept alive by the foreground service. Android-free, so it is tested on the JVM;
+ * NodeRuntime wires it up.
  */
 class ViewController(
     private val api: ViewApi,
@@ -82,6 +136,13 @@ class ViewController(
     private val ownDeviceId: () -> String?,
     /** The receiver's server address, offered as the default in the connect form. */
     val suggestedServer: () -> String?,
+    /** The SMS-app feature is on: this phone's own messages are in the 「短信」 tab. */
+    private val ownInInbox: () -> Boolean = { false },
+    /** ...and, being the default SMS app, it alerts about them itself. */
+    private val ownAlertedLocally: () -> Boolean = { false },
+    private val alerts: PlatformAlerts = PlatformAlerts.None,
+    /** Whether the background stream is wanted changed: start or stop the foreground service. */
+    private val onBackgroundChanged: () -> Unit = {},
 ) {
     private val _state = MutableStateFlow(snapshot())
     val state: StateFlow<ViewState> = _state.asStateFlow()
@@ -91,8 +152,23 @@ class ViewController(
     /** Every event from the stream, for the open conversation to follow along. */
     val events: SharedFlow<ServerEvent> = _events.asSharedFlow()
 
+    @Volatile
     private var foreground = false
+
+    /** The conversation open on screen ([RemoteConversation.key]), so its messages do not also pop up as alerts. */
+    @Volatile
+    var openConversation: String? = null
+        set(value) {
+            field = value
+            if (value != null) alerts.cancel(listOf(value))
+        }
+
     private var refreshJob: Job? = null
+
+    /** Message id → conversation, for the alerts shown (to cancel them on "read", and not to show one twice). */
+    private val alerted = object : LinkedHashMap<Long, String>() {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Long, String>?) = size > 500
+    }
 
     private val stream = EventStream(
         api,
@@ -103,7 +179,7 @@ class ViewController(
             if (s == StreamStatus.TOKEN_DEAD) markTokenDead()
             _state.update { it.copy(stream = s) }
         },
-    )
+    ).also { it.lastEventId = settings.lastEventId } // a restarted process catches up instead of starting blind
 
     private fun endpoint(): Pair<String, String>? {
         val url = settings.serverUrl ?: return null
@@ -123,24 +199,53 @@ class ViewController(
         serverUrl = settings.serverUrl,
         deviceName = settings.deviceName,
         scopes = settings.scopes,
+        backgroundAlerts = settings.backgroundAlerts,
         ownDeviceId = ownDeviceId(),
+        ownInInbox = ownInInbox(),
+        showOwn = settings.showOwn,
+        deleteOnPlatform = settings.deleteOnPlatform,
     )
 
-    private fun publishSettings() {
+    /** Re-reads the settings (and what the other features say) into the state. */
+    fun publishSettings() {
         val s = snapshot()
-        _state.update { it.copy(enabled = s.enabled, connection = s.connection, serverUrl = s.serverUrl, deviceName = s.deviceName, scopes = s.scopes, ownDeviceId = s.ownDeviceId) }
+        _state.update {
+            it.copy(
+                enabled = s.enabled, connection = s.connection, serverUrl = s.serverUrl, deviceName = s.deviceName,
+                scopes = s.scopes, backgroundAlerts = s.backgroundAlerts, ownDeviceId = s.ownDeviceId,
+                ownInInbox = s.ownInInbox, showOwn = s.showOwn, deleteOnPlatform = s.deleteOnPlatform,
+            )
+        }
     }
 
-    // --- the switch and the app's lifecycle ---
+    // --- the switch, the app's lifecycle, the background ---
 
     fun setEnabled(on: Boolean) {
         settings.enabled = on
-        publishSettings()
-        syncStream()
+        changed()
         if (on) scheduleRefresh(0)
     }
 
-    /** MainActivity's onStart / onStop: the stream only runs while the app is visible (background alerts come later). */
+    fun setBackgroundAlerts(on: Boolean) {
+        settings.backgroundAlerts = on
+        changed()
+    }
+
+    fun setShowOwn(on: Boolean) {
+        settings.showOwn = on
+        publishSettings()
+    }
+
+    fun setDeleteOnPlatform(on: Boolean) {
+        settings.deleteOnPlatform = on
+        publishSettings()
+    }
+
+    /** Whether a delete in the 「短信」 inbox should also reach the platform right now. */
+    fun deletesOnPlatform(): Boolean =
+        settings.deleteOnPlatform && settings.enabled && connection() == ViewConnection.CONNECTED && Scopes.DELETE in settings.scopes
+
+    /** MainActivity's onStart / onStop. Without background alerts the stream only runs while the app is visible. */
     fun setForeground(visible: Boolean) {
         foreground = visible
         publishSettings()
@@ -151,9 +256,19 @@ class ViewController(
         }
     }
 
-    private fun syncStream() {
-        val wanted = foreground && settings.enabled && connection() == ViewConnection.CONNECTED
+    /** Wanted in the background: the foreground service keeps the process (and so the stream) alive for it. */
+    fun backgroundWanted(): Boolean = settings.enabled && settings.backgroundAlerts && connection() == ViewConnection.CONNECTED
+
+    /** Brings the stream in line with what is wanted; NodeService also calls it when it starts. */
+    fun syncStream() {
+        val wanted = settings.enabled && connection() == ViewConnection.CONNECTED && (foreground || settings.backgroundAlerts)
         if (wanted) stream.start(scope) else if (stream.running) stream.stop()
+    }
+
+    private fun changed() {
+        publishSettings()
+        syncStream()
+        onBackgroundChanged()
     }
 
     // --- connecting ---
@@ -188,6 +303,7 @@ class ViewController(
     }
 
     private fun adopt(url: String, name: String, claim: ClientClaim): ViewResult {
+        if (stream.running) stream.stop()
         tokens.write(claim.token)
         settings.serverUrl = url
         settings.deviceId = claim.deviceId
@@ -195,9 +311,11 @@ class ViewController(
         settings.scopes = claim.scopes.toSet()
         settings.needsLogin = false
         settings.enabled = true
+        // A new identity starts the stream fresh: no replay of another identity's (or server's) history.
+        settings.lastEventId = null
+        stream.lastEventId = null
         _state.update { it.copy(conversations = emptyList(), loaded = false, error = null) }
-        publishSettings()
-        syncStream()
+        changed()
         scheduleRefresh(0)
         return ViewResult.Ok()
     }
@@ -225,14 +343,17 @@ class ViewController(
         settings.deviceId = null
         settings.scopes = emptySet()
         settings.needsLogin = false
+        settings.lastEventId = null
+        alerts.cancel(synchronized(alerted) { alerted.values.toSet() })
         _state.update { it.copy(conversations = emptyList(), unread = 0, loaded = false, error = null, phones = emptyMap(), cards = emptyMap()) }
-        publishSettings()
+        changed()
     }
 
     private fun markTokenDead() {
         settings.needsLogin = true
         tokens.clear()
         publishSettings()
+        onBackgroundChanged()
     }
 
     // --- the list ---
@@ -264,9 +385,8 @@ class ViewController(
         val (url, token) = endpoint() ?: return
         if (!settings.enabled) return
         val s = _state.value
-        _state.update { it.copy(loading = true) }
-        val page = api.conversations(url, token, query = s.query.trim().ifEmpty { null }, unreadOnly = s.filter == PlatformFilter.Unread)
-        when (page) {
+        _state.update { it.copy(loading = true, ownInInbox = ownInInbox(), ownDeviceId = ownDeviceId()) }
+        when (val page = api.conversations(url, token, query = s.query.trim().ifEmpty { null }, unreadOnly = s.filter == PlatformFilter.Unread)) {
             is ApiResult.Ok -> _state.update { it.copy(conversations = page.value.items, unread = page.value.unread, loaded = true, loading = false, error = null) }
             is ApiResult.Failure -> {
                 if (page.verdict == ConnectionVerdict.NEEDS_PAIRING) markTokenDead()
@@ -280,41 +400,115 @@ class ViewController(
 
     // --- one conversation ---
 
-    suspend fun loadThread(thread: RemoteConversation, before: Long? = null): ApiResult<List<RemoteMessage>> {
-        val (url, token) = endpoint() ?: return notConnected()
-        return api.messages(url, token, thread, before).map { page ->
+    suspend fun loadThread(thread: RemoteConversation, before: Long? = null): ApiResult<List<RemoteMessage>> = authed { url, token ->
+        api.messages(url, token, thread, before).map { page ->
             page.items.sortedWith(compareBy<RemoteMessage> { it.deviceTime }.thenBy { it.id })
         }
     }
 
-    suspend fun markThreadRead(thread: RemoteConversation): ApiResult<List<Long>> {
-        val (url, token) = endpoint() ?: return notConnected()
-        val r = api.markThreadRead(url, token, thread)
-        if (r is ApiResult.Ok && r.value.isNotEmpty()) scheduleRefresh(0)
-        return r
+    suspend fun markThreadRead(thread: RemoteConversation): ApiResult<List<Long>> = authed { url, token ->
+        api.markThreadRead(url, token, thread).also { r ->
+            alerts.cancel(listOf(thread.key))
+            if (r is ApiResult.Ok && r.value.isNotEmpty()) scheduleRefresh(0)
+        }
     }
 
-    suspend fun markUnread(id: Long): ApiResult<Unit> {
-        val (url, token) = endpoint() ?: return notConnected()
-        val r = api.markUnread(url, token, id)
-        if (r is ApiResult.Ok) scheduleRefresh(0)
-        return r
+    /** The notification's "标为已读": the messages it showed. */
+    suspend fun markRead(ids: List<Long>): ApiResult<Unit> = authed { url, token -> api.markRead(url, token, ids) }
+
+    suspend fun markUnread(id: Long): ApiResult<Unit> = authed { url, token ->
+        api.markUnread(url, token, id).also { if (it is ApiResult.Ok) scheduleRefresh(0) }
     }
 
-    private fun notConnected() = ApiResult.Failure(ConnectionVerdict.TRANSIENT, app.nya.smsforward.node.net.FailureKind.NETWORK, code = "not_connected", message = "还没有登录")
+    // --- sending ---
+
+    /** The message a reply in [thread] answers: its newest received one. */
+    fun replyTarget(messages: List<RemoteMessage>): RemoteMessage? = messages.lastOrNull { it.incoming }
+
+    /** Why [thread] cannot be replied to right now, or null. */
+    fun replyBlockedReason(thread: RemoteConversation, messages: List<RemoteMessage>): String? {
+        val s = _state.value
+        return when {
+            !s.canReply -> "这个客户端没有“回复”权限，可以在 Web 的设备页调整"
+            !thread.replyable -> "字母 / 名称发件人无法回复"
+            replyTarget(messages) == null -> "这个会话里没有收到过短信，无法回复（可以用「新短信」）"
+            else -> s.phones[replyTarget(messages)!!.deviceId]?.blockedReason(reply = true)
+        }
+    }
+
+    suspend fun reply(messageId: Long, body: String): ApiResult<OutboundTask> = authed { url, token -> api.reply(url, token, messageId, body.trim()) }
+
+    suspend fun sendNew(deviceId: String, simSlot: Int?, to: String, body: String): ApiResult<OutboundTask> =
+        authed { url, token -> api.sendNew(url, token, deviceId, simSlot, to.trim(), body.trim()) }
+
+    suspend fun tasks(thread: RemoteConversation): ApiResult<List<OutboundTask>> =
+        authed { url, token -> api.outbound(url, token, thread.deviceId, thread.peerKey) }
+
+    suspend fun cancelTask(taskId: String): ApiResult<OutboundTask> = authed { url, token -> api.cancelOutbound(url, token, taskId) }
+
+    // --- deleting ---
+
+    suspend fun deleteMessages(ids: List<Long>, deletePhone: Boolean): ApiResult<List<Long>> = authed { url, token ->
+        api.deleteMessages(url, token, ids, deletePhone).also { if (it is ApiResult.Ok) scheduleRefresh(0) }
+    }
+
+    suspend fun deleteConversations(threads: List<RemoteConversation>, deletePhone: Boolean): ApiResult<Int> = authed { url, token ->
+        api.deleteConversations(url, token, threads, deletePhone).also {
+            if (it is ApiResult.Ok) {
+                alerts.cancel(threads.map { t -> t.key })
+                scheduleRefresh(0)
+            }
+        }
+    }
+
+    suspend fun recycleBin(before: RemoteMessage? = null): ApiResult<List<RemoteMessage>> =
+        authed { url, token -> api.deletedMessages(url, token, before?.id, before?.deletedAt) }
+
+    suspend fun restore(id: Long): ApiResult<Unit> = authed { url, token ->
+        api.restoreMessage(url, token, id).also { if (it is ApiResult.Ok) scheduleRefresh(0) }
+    }
+
+    suspend fun deletePhoneCopies(ids: List<Long>): ApiResult<List<Long>> = authed { url, token -> api.deletePhoneCopies(url, token, ids) }
+
+    /** Runs [call] with the endpoint, and notices a dead token in its answer. */
+    private suspend fun <T> authed(call: suspend (String, String) -> ApiResult<T>): ApiResult<T> {
+        val (url, token) = endpoint()
+            ?: return ApiResult.Failure(ConnectionVerdict.TRANSIENT, FailureKind.NETWORK, code = "not_connected", message = "还没有登录")
+        val r = call(url, token)
+        if (r is ApiResult.Failure && r.verdict == ConnectionVerdict.NEEDS_PAIRING) markTokenDead()
+        return r
+    }
 
     // --- events ---
 
     private fun onEvent(event: ServerEvent) {
+        stream.lastEventId?.let { if (it != settings.lastEventId) settings.lastEventId = it }
         _events.tryEmit(event)
         when (event) {
-            is ServerEvent.Message, is ServerEvent.Read, is ServerEvent.Deleted, ServerEvent.Resync -> scheduleRefresh(EVENT_DEBOUNCE_MS)
+            is ServerEvent.Message -> {
+                maybeAlert(event)
+                scheduleRefresh(EVENT_DEBOUNCE_MS)
+            }
+            is ServerEvent.Read -> {
+                val keys = synchronized(alerted) { event.ids.mapNotNull { alerted[it] }.toSet() }
+                if (keys.isNotEmpty()) alerts.cancel(keys)
+                scheduleRefresh(EVENT_DEBOUNCE_MS)
+            }
+            is ServerEvent.Deleted, ServerEvent.Resync -> scheduleRefresh(EVENT_DEBOUNCE_MS)
             is ServerEvent.Device -> _state.update { s ->
                 val phone = s.phones[event.deviceId] ?: return@update s
                 s.copy(phones = s.phones + (event.deviceId to phone.copy(online = event.online, battery = event.battery ?: phone.battery)))
             }
             else -> Unit
         }
+    }
+
+    private fun maybeAlert(event: ServerEvent.Message) {
+        val m = event.message
+        val already = synchronized(alerted) { m.id in alerted }
+        if (!shouldAlert(event, already, foreground, openConversation, ownDeviceId(), ownAlertedLocally())) return
+        synchronized(alerted) { alerted[m.id] = m.conversationKey }
+        alerts.show(m, _state.value)
     }
 
     // --- helpers ---
@@ -347,5 +541,14 @@ fun describeViewFailure(f: ApiResult.Failure): String = when (f.code) {
     "scope_denied" -> "这个客户端没有该操作的权限，可以在 Web 的设备页调整"
     "message_not_found" -> "短信已不存在"
     "pair_code_required" -> "这个服务器不允许用账号登录，请改用配对码"
+    "policy_denied" -> "这台手机的下发策略不允许（先在 Web 里调整平台策略，手机上也要开启）"
+    "reply_not_supported" -> "字母 / 名称发件人无法回复"
+    "rate_limited" -> "发送太频繁，请稍后再试"
+    "bad_body" -> "短信内容不能为空，且不超过 1000 个字"
+    "bad_recipient" -> "收件人号码格式不对"
+    "bad_sim_slot" -> "这台手机没有这个 SIM 卡槽"
+    "device_revoked" -> "这台手机的令牌已被吊销，需要先重新配对"
+    "not_cancellable" -> "任务已经交给手机，无法取消"
+    "not_connected" -> "还没有登录"
     else -> if (f.verdict == ConnectionVerdict.NEEDS_PAIRING) "登录已失效，需要重新登录" else describeFailure(f)
 }

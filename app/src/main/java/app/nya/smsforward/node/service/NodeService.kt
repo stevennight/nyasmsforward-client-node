@@ -15,7 +15,8 @@ import app.nya.smsforward.node.node.channelWanted
 
 /**
  * Keeps the device channel alive while paired. Besides outgoing tasks, it receives platform deletion requests, so
- * turning sending off does not close this connection.
+ * turning sending off does not close this connection. It also keeps the process alive for the 「查看」 feature's event
+ * stream when background alerts are on (the stream itself lives in ViewController); one service, one notification.
  */
 class NodeService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
@@ -26,17 +27,24 @@ class NodeService : Service() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val runtime = NodeRuntime.get(this)
         // A foreground service must post its notification within seconds of being started, even if it is about to stop.
-        val notification = Notifier.channelNotification(this, runtime.settings.sendPolicy)
+        val phone = runtime.settings.channelWanted(runtime.tokens)
+        val view = runtime.view.backgroundWanted()
+        val notification = Notifier.channelNotification(this, runtime.settings.sendPolicy, phone = phone, view = view)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(Notifier.ID_CHANNEL, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
             startForeground(Notifier.ID_CHANNEL, notification)
         }
-        if (!runtime.settings.channelWanted(runtime.tokens)) {
+        if (!phone && !view) {
             stopSelf()
             return START_NOT_STICKY
         }
-        runtime.channel.start(onStopped = { stopSelf() })
+        if (phone) {
+            runtime.channel.start(onStopped = { if (!runtime.view.backgroundWanted()) stopSelf() })
+        } else {
+            runtime.channel.stop()
+        }
+        runtime.view.syncStream()
         return START_STICKY
     }
 
@@ -53,7 +61,7 @@ class NodeService : Service() {
             val app = context.applicationContext
             val runtime = NodeRuntime.get(app)
             val intent = Intent(app, NodeService::class.java)
-            if (runtime.settings.channelWanted(runtime.tokens)) {
+            if (runtime.settings.channelWanted(runtime.tokens) || runtime.view.backgroundWanted()) {
                 try {
                     ContextCompat.startForegroundService(app, intent)
                 } catch (e: Exception) {

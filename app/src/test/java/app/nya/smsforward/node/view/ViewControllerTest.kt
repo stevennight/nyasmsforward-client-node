@@ -20,6 +20,10 @@ class MemoryViewSettings : ViewSettings {
     override var deviceName: String? = null
     override var scopes: Set<String> = emptySet()
     override var needsLogin = false
+    override var backgroundAlerts = true
+    override var lastEventId: String? = null
+    override var showOwn = false
+    override var deleteOnPlatform = false
 }
 
 class ViewControllerTest {
@@ -113,6 +117,66 @@ class ViewControllerTest {
         assertEquals(listOf("10086"), view.state.value.shown.map { it.peer })
         view.setFilter(PlatformFilter.Phone("d_other"))
         assertEquals(listOf("95588"), view.state.value.shown.map { it.peer })
+    }
+
+    @Test
+    fun `with the inbox showing this phone's messages, 全部 leaves them out but 本机 still lists them`() {
+        fun conv(device: String, peer: String) = RemoteConversation(device, null, peer, peer, RemoteMessage(id = peer.length.toLong(), deviceId = device))
+        val base = ViewState(conversations = listOf(conv("d_me", "10086"), conv("d_other", "95588")), ownDeviceId = "d_me")
+        assertEquals(2, base.shown.size, "without the SMS-app feature everything is listed")
+        val inbox = base.copy(ownInInbox = true)
+        assertEquals(listOf("95588"), inbox.shown.map { it.peer })
+        assertEquals(1, inbox.hiddenOwn)
+        assertEquals(2, inbox.copy(showOwn = true).shown.size)
+        assertEquals(listOf("10086"), inbox.copy(filter = PlatformFilter.ThisPhone).shown.map { it.peer })
+    }
+
+    @Test
+    fun `alerts only for new received messages, once, not for the open conversation, not twice for this phone`() {
+        val m = RemoteMessage(id = 7, deviceId = "d_me", peerKey = "10086")
+        val e = ServerEvent.Message(m, notify = true)
+        fun alert(event: ServerEvent.Message = e, already: Boolean = false, fg: Boolean = false, open: String? = null, own: Boolean = false) =
+            shouldAlert(event, already, fg, open, "d_me", own)
+
+        assertTrue(alert())
+        assertTrue(!alert(ServerEvent.Message(m, notify = false)), "the server said not to (history, sent from the platform)")
+        assertTrue(!alert(ServerEvent.Message(m.copy(direction = "out"), notify = true)))
+        assertTrue(!alert(already = true), "a replay after reconnecting")
+        assertTrue(!alert(fg = true, open = m.conversationKey), "that conversation is on screen")
+        assertTrue(alert(fg = false, open = m.conversationKey), "left open in the background still alerts")
+        assertTrue(!alert(own = true), "the 「短信」 inbox alerts about this phone's own message")
+        assertTrue(alert(ServerEvent.Message(m.copy(deviceId = "d_other"), notify = true), own = true))
+    }
+
+    @Test
+    fun `a reply needs the scope, a number, a received message and a phone that allows it`() = runBlocking {
+        server.enqueue(json("""{"deviceId":"d_c","token":"nsf_c","scopes":["read"]}"""))
+        view.connectWithCode(base, "123456", "x")
+        val thread = RemoteConversation("d1", null, "10086", "10086", RemoteMessage(id = 1))
+        val received = listOf(RemoteMessage(id = 1, deviceId = "d1", direction = "in"), RemoteMessage(id = 2, deviceId = "d1", direction = "out"))
+        assertTrue("回复" in view.replyBlockedReason(thread, received)!!)
+
+        server.enqueue(json("""{"deviceId":"d_c","token":"nsf_c","scopes":["read","reply"]}"""))
+        view.connectWithCode(base, "123456", "x")
+        assertTrue("字母" in view.replyBlockedReason(thread.copy(replyable = false), received)!!)
+        assertTrue("没有收到过" in view.replyBlockedReason(thread, received.filter { !it.incoming })!!)
+        assertEquals(1L, view.replyTarget(received)?.id)
+        assertNull(view.replyBlockedReason(thread, received), "phone not known yet: let the server decide")
+
+        assertNull(RemotePhone("d1", effectivePolicy = "reply").blockedReason(reply = true))
+        assertTrue("新发" in RemotePhone("d1", effectivePolicy = "reply").blockedReason(reply = false)!!)
+        assertTrue("吊销" in RemotePhone("d1", revoked = true, effectivePolicy = "any").blockedReason(reply = true)!!)
+    }
+
+    @Test
+    fun `deleting in the inbox reaches the platform only with the option on, logged in and allowed`() = runBlocking {
+        server.enqueue(json("""{"deviceId":"d_c","token":"nsf_c","scopes":["read","delete"]}"""))
+        view.connectWithCode(base, "123456", "x")
+        assertTrue(!view.deletesOnPlatform(), "off by default")
+        view.setDeleteOnPlatform(true)
+        assertTrue(view.deletesOnPlatform())
+        settings.scopes = setOf("read")
+        assertTrue(!view.deletesOnPlatform())
     }
 
     @Test

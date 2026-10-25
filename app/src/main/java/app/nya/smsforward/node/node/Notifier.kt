@@ -44,8 +44,11 @@ object Notifier {
         manager.notify(ID_NEEDS_PAIRING, notification)
     }
 
-    /** The ongoing notification of the foreground service that keeps the send channel connected. */
-    fun channelNotification(context: Context, policy: SendPolicy): Notification {
+    /**
+     * The ongoing notification of the foreground service: the receiver's send channel ([phone]), the 「查看」 feature's
+     * background stream ([view]), or both.
+     */
+    fun channelNotification(context: Context, policy: SendPolicy, phone: Boolean = true, view: Boolean = false): Notification {
         context.getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL_SERVICE, "下发通道", NotificationManager.IMPORTANCE_LOW),
         )
@@ -54,10 +57,15 @@ object Notifier {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val what = if (policy == SendPolicy.ANY) "回复和新发" else "回复"
+        val (title, text) = when {
+            phone && view -> "接收端在线 · 正在接收平台短信" to "平台可以让这台手机代发短信（$what）；其他手机上报的新短信会在这里提醒。在设置里可以随时关闭。"
+            view -> "正在接收平台短信" to "平台上的新短信会在这里提醒。在「设置 → 功能 → 查看」里可以关闭后台通知。"
+            else -> "接收端在线" to "平台可以让这台手机代发短信（$what）。在设置里可以随时关闭。"
+        }
         return NotificationCompat.Builder(context, CHANNEL_SERVICE)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("接收端在线")
-            .setContentText("平台可以让这台手机代发短信（$what）。在设置里可以随时关闭。")
+            .setContentTitle(title)
+            .setContentText(text)
             .setContentIntent(open)
             .setOngoing(true)
             .setOnlyAlertOnce(true)

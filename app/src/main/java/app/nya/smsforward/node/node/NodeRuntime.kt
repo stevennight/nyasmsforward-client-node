@@ -18,7 +18,10 @@ import app.nya.smsforward.node.data.SqliteSendLedger
 import app.nya.smsforward.node.inbox.Blocker
 import app.nya.smsforward.node.inbox.Recycler
 import app.nya.smsforward.node.inbox.SmsAppFeature
+import app.nya.smsforward.node.inbox.ReportStates
+import app.nya.smsforward.node.inbox.SmsRow
 import app.nya.smsforward.node.inbox.SmsStore
+import app.nya.smsforward.node.net.ApiResult
 import app.nya.smsforward.node.net.ChannelState
 import app.nya.smsforward.node.net.OkHttpNodeApi
 import app.nya.smsforward.node.net.SimInfo
@@ -37,6 +40,7 @@ import app.nya.smsforward.node.work.SentSyncScheduler
 import app.nya.smsforward.node.work.UploadScheduler
 import app.nya.smsforward.node.work.Uploader
 import app.nya.smsforward.node.view.OkHttpViewApi
+import app.nya.smsforward.node.view.PlatformNotifier
 import app.nya.smsforward.node.view.PrefsViewSettings
 import app.nya.smsforward.node.view.ViewController
 import kotlinx.coroutines.CoroutineScope
@@ -196,7 +200,29 @@ class NodeRuntime private constructor(private val app: Context) {
             defaultName = (Build.MODEL?.takeIf { it.isNotBlank() } ?: "Android 手机") + "（查看）",
             ownDeviceId = { settings.deviceId },
             suggestedServer = { settings.serverUrl },
+            ownInInbox = { SmsAppFeature.isOn(app) },
+            // As the default SMS app the 「短信」 inbox alerts about this phone's messages itself: no second alert.
+            ownAlertedLocally = { SmsAppFeature.isOn(app) && SmsStore.isDefaultSmsApp(app) },
+            alerts = PlatformNotifier(app),
+            onBackgroundChanged = { NodeService.sync(app) },
         )
+    }
+
+    /**
+     * 「短信」 + 「查看」: with "删除时也移到平台回收站" on, the platform copies of [rows] (matched through the report queue,
+     * which remembers their platform ids) go to the platform recycle bin too. Returns those ids, for 撤销.
+     */
+    suspend fun alsoDeleteOnPlatform(rows: List<SmsRow>): List<Long> {
+        if (!view.deletesOnPlatform()) return emptyList()
+        val states = withContext(Dispatchers.IO) { ReportStates(outbox.reportRecords()) }
+        val ids = rows.mapNotNull { states.of(it)?.serverId }.distinct()
+        if (ids.isEmpty()) return emptyList()
+        return (view.deleteMessages(ids, deletePhone = false) as? ApiResult.Ok)?.value.orEmpty()
+    }
+
+    /** Undoes [alsoDeleteOnPlatform]. */
+    suspend fun restoreOnPlatform(ids: List<Long>) {
+        for (id in ids) view.restore(id)
     }
 
     /** The node.db handle, for the migration from the old full edition (migrate/). */
@@ -210,6 +236,7 @@ class NodeRuntime private constructor(private val app: Context) {
         } else {
             SmsAppFeature.turnOff(app)
         }
+        view.publishSettings() // the 「平台」 tab leaves out this phone's own conversations while the inbox has them
         scope.launch { refresh() }
         return result
     }

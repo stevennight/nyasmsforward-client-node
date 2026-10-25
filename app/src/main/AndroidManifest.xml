@@ -200,6 +200,8 @@
         <!-- Radio results of messages typed in the app, and the notification buttons. Not exported, always on. -->
         <receiver android:name=".inbox.LocalSendReceiver" android:exported="false" />
         <receiver android:name=".inbox.InboxActionReceiver" android:exported="false" />
+        <!-- The 「平台」 notification buttons (复制验证码 / 标为已读). Not exported. -->
+        <receiver android:name=".view.PlatformActionReceiver" android:exported="false" />
     </application>
 
 </manifest>

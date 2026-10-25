@@ -9,7 +9,7 @@ package app.nya.smsforward.node.data
  * schema add statements and raise [LATEST]; never edit what has shipped.
  */
 object Schema {
-    const val LATEST = 7
+    const val LATEST = 8
 
     fun migrate(db: SqlDb) = db.transaction {
         if (db.version < LATEST) {
@@ -105,6 +105,9 @@ object Schema {
                     db.execute("INSERT OR IGNORE INTO block_rules (kind, value, created_at) VALUES (?, 'on', 0)", listOf(kind))
                 }
             }
+            // Version 8 (「查看」): the platform's id of each reported message, so deleting it in the 「短信」 inbox can also
+            // move the platform's copy to the platform recycle bin.
+            addColumnIfMissing(db, "outbox", "server_id", "INTEGER")
             db.version = LATEST
         }
     }

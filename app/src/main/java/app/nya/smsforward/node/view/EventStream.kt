@@ -48,9 +48,9 @@ class EventStream(
     /** Waits out a backoff delay; the default can be cut short by [nudge]. Tests pass one that returns at once. */
     pause: (suspend (Long) -> Unit)? = null,
 ) {
+    /** The id of the last event seen; seeded by the owner so a new process resumes where the old one stopped. */
     @Volatile
     var lastEventId: String? = null
-        private set
 
     @Volatile
     var status: StreamStatus = StreamStatus.IDLE

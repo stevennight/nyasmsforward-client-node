@@ -226,17 +226,20 @@ fun InboxScreen(
 
     /** Moves conversations to the recycle bin and offers to undo it. Returns whether anything was moved. */
     suspend fun delete(targets: List<ConversationSummary>): Boolean {
-        val ids = withContext(Dispatchers.IO) {
-            runtime.recycler.recycleThreads(targets.map { it.threadId }.filter { it > 0 }, Recycler.ORIGIN_APP)
-        }
+        val threadIds = targets.map { it.threadId }.filter { it > 0 }
+        // Read before they go: the platform copies are found by their text and time (only used with 「查看」's option on).
+        val rows = if (runtime.view.deletesOnPlatform()) withContext(Dispatchers.IO) { threadIds.flatMap { store.thread(it, limit = 100_000) } } else emptyList()
+        val ids = withContext(Dispatchers.IO) { runtime.recycler.recycleThreads(threadIds, Recycler.ORIGIN_APP) }
         if (ids.isEmpty()) {
             toast(context, "删除失败")
             return false
         }
+        val platform = runtime.alsoDeleteOnPlatform(rows)
         scope.launch {
-            val label = if (targets.size == 1) "已删除会话" else "已删除 ${targets.size} 个会话"
+            val label = (if (targets.size == 1) "已删除会话" else "已删除 ${targets.size} 个会话") + if (platform.isNotEmpty()) "（平台上的也已移到回收站）" else ""
             if (snackbar.showSnackbar(label, actionLabel = "撤销", duration = SnackbarDuration.Long) == SnackbarResult.ActionPerformed) {
                 withContext(Dispatchers.IO) { runtime.recycler.restoreAll(ids) }
+                runtime.restoreOnPlatform(platform)
             }
         }
         return true
@@ -718,12 +721,18 @@ fun ThreadScreen(runtime: NodeRuntime, threadId: Long, address: String, initialD
                         IconButton(onClick = {
                             val ids = selected
                             selected = emptySet()
+                            val picked = rows.filter { it.id in ids }
                             scope.launch {
                                 val trashIds = withContext(Dispatchers.IO) { runtime.recycler.recycleAll(ids, Recycler.ORIGIN_APP) }
                                 if (trashIds.isEmpty()) {
                                     toast(context, "删除失败")
-                                } else if (snackbar.showSnackbar("已将 ${trashIds.size} 条移到回收站", actionLabel = "撤销", duration = SnackbarDuration.Long) == SnackbarResult.ActionPerformed) {
+                                    return@launch
+                                }
+                                val platform = runtime.alsoDeleteOnPlatform(picked)
+                                val label = "已将 ${trashIds.size} 条移到回收站" + if (platform.isNotEmpty()) "（平台上的也是）" else ""
+                                if (snackbar.showSnackbar(label, actionLabel = "撤销", duration = SnackbarDuration.Long) == SnackbarResult.ActionPerformed) {
                                     withContext(Dispatchers.IO) { runtime.recycler.restoreAll(trashIds) }
+                                    runtime.restoreOnPlatform(platform)
                                 }
                             }
                         }) { Icon(Icons.Filled.Delete, contentDescription = "删除") }

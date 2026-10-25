@@ -9,6 +9,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import okhttp3.HttpUrl
@@ -50,6 +52,33 @@ interface ViewApi {
     suspend fun markThreadRead(baseUrl: String, token: String, thread: RemoteConversation): ApiResult<List<Long>>
 
     suspend fun markUnread(baseUrl: String, token: String, id: Long): ApiResult<Unit>
+
+    suspend fun markRead(baseUrl: String, token: String, ids: List<Long>): ApiResult<Unit>
+
+    /** Replies to a received message: recipient, phone and SIM come from that message. Needs `reply`. */
+    suspend fun reply(baseUrl: String, token: String, messageId: Long, body: String): ApiResult<OutboundTask>
+
+    /** A new message through [deviceId] (and [simSlot]); needs `send` and a phone whose policy allows it. */
+    suspend fun sendNew(baseUrl: String, token: String, deviceId: String, simSlot: Int?, to: String, body: String): ApiResult<OutboundTask>
+
+    /** The latest send tasks, optionally of one phone and number. */
+    suspend fun outbound(baseUrl: String, token: String, deviceId: String? = null, peer: String? = null, limit: Int = 5): ApiResult<List<OutboundTask>>
+
+    suspend fun cancelOutbound(baseUrl: String, token: String, taskId: String): ApiResult<OutboundTask>
+
+    /** Moves messages to the platform recycle bin; [deletePhone] also asks the receiver phone to delete them. Needs `delete`. */
+    suspend fun deleteMessages(baseUrl: String, token: String, ids: List<Long>, deletePhone: Boolean): ApiResult<List<Long>>
+
+    /** Moves whole conversations to the recycle bin; returns how many messages moved. */
+    suspend fun deleteConversations(baseUrl: String, token: String, threads: List<RemoteConversation>, deletePhone: Boolean): ApiResult<Int>
+
+    /** The recycle bin, newest deletion first; [before] / [beforeAt] are the last item's id and deletedAt. */
+    suspend fun deletedMessages(baseUrl: String, token: String, before: Long? = null, beforeAt: Long? = null): ApiResult<List<RemoteMessage>>
+
+    suspend fun restoreMessage(baseUrl: String, token: String, id: Long): ApiResult<Unit>
+
+    /** Asks the receiver phones to delete messages that are in the recycle bin already; returns the queued ids. */
+    suspend fun deletePhoneCopies(baseUrl: String, token: String, ids: List<Long>): ApiResult<List<Long>>
 
     /** Opens the event stream. The caller reads and closes the body. */
     suspend fun openEvents(baseUrl: String, token: String, lastEventId: String?): ApiResult<OpenStream>
@@ -124,6 +153,87 @@ class OkHttpViewApi(client: OkHttpClient = defaultClient()) : ViewApi {
 
     override suspend fun markUnread(baseUrl: String, token: String, id: Long): ApiResult<Unit> =
         call(url(baseUrl, "/api/v1/messages/$id/unread"), token, body = "{}", serializer = Empty.serializer()).map { }
+
+    override suspend fun markRead(baseUrl: String, token: String, ids: List<Long>): ApiResult<Unit> =
+        call(
+            url(baseUrl, "/api/v1/messages/read"), token,
+            body = buildJsonObject { put("ids", JsonArray(ids.map { JsonPrimitive(it) })) }.toString(),
+            serializer = Empty.serializer(),
+        ).map { }
+
+    override suspend fun reply(baseUrl: String, token: String, messageId: Long, body: String): ApiResult<OutboundTask> =
+        call(
+            url(baseUrl, "/api/v1/outbound"), token,
+            body = buildJsonObject { put("replyToMessageId", messageId); put("body", body) }.toString(),
+            serializer = OutboundTask.serializer(),
+        )
+
+    override suspend fun sendNew(baseUrl: String, token: String, deviceId: String, simSlot: Int?, to: String, body: String): ApiResult<OutboundTask> =
+        call(
+            url(baseUrl, "/api/v1/outbound"), token,
+            body = buildJsonObject {
+                put("deviceId", deviceId)
+                if (simSlot != null) put("simSlot", simSlot)
+                put("to", to)
+                put("body", body)
+            }.toString(),
+            serializer = OutboundTask.serializer(),
+        )
+
+    override suspend fun outbound(baseUrl: String, token: String, deviceId: String?, peer: String?, limit: Int): ApiResult<List<OutboundTask>> =
+        call(
+            url(baseUrl, "/api/v1/outbound", "device" to deviceId, "peer" to peer, "limit" to limit.toString()),
+            token, body = null, serializer = TaskList.serializer(),
+        ).map { it.items }
+
+    override suspend fun cancelOutbound(baseUrl: String, token: String, taskId: String): ApiResult<OutboundTask> =
+        call(url(baseUrl, "/api/v1/outbound/$taskId/cancel"), token, body = "{}", serializer = OutboundTask.serializer())
+
+    override suspend fun deleteMessages(baseUrl: String, token: String, ids: List<Long>, deletePhone: Boolean): ApiResult<List<Long>> =
+        call(
+            url(baseUrl, "/api/v1/messages/delete"), token,
+            body = buildJsonObject {
+                put("ids", JsonArray(ids.map { JsonPrimitive(it) }))
+                if (deletePhone) put("deletePhone", true)
+            }.toString(),
+            serializer = DeletedIds.serializer(),
+        ).map { it.deleted }
+
+    override suspend fun deleteConversations(baseUrl: String, token: String, threads: List<RemoteConversation>, deletePhone: Boolean): ApiResult<Int> =
+        call(
+            url(baseUrl, "/api/v1/messages/delete-conversations"), token,
+            body = buildJsonObject {
+                put(
+                    "conversations",
+                    JsonArray(
+                        threads.map { t ->
+                            buildJsonObject {
+                                put("peerKey", t.peerKey)
+                                if (t.cardNumber.isNullOrEmpty()) put("deviceId", t.deviceId) else put("cardNumber", t.cardNumber)
+                            }
+                        },
+                    ),
+                )
+                if (deletePhone) put("deletePhone", true)
+            }.toString(),
+            serializer = DeletedCount.serializer(),
+        ).map { it.deleted }
+
+    override suspend fun deletedMessages(baseUrl: String, token: String, before: Long?, beforeAt: Long?): ApiResult<List<RemoteMessage>> =
+        call(
+            url(baseUrl, "/api/v1/messages/deleted", "before" to before?.toString(), "beforeAt" to beforeAt?.toString(), "limit" to ViewApi.PAGE.toString()),
+            token, body = null, serializer = MessagePage.serializer(),
+        ).map { it.items }
+
+    override suspend fun restoreMessage(baseUrl: String, token: String, id: Long): ApiResult<Unit> =
+        call(url(baseUrl, "/api/v1/messages/$id/restore"), token, body = "{}", serializer = Empty.serializer()).map { }
+
+    override suspend fun deletePhoneCopies(baseUrl: String, token: String, ids: List<Long>): ApiResult<List<Long>> =
+        call(
+            url(baseUrl, "/api/v1/messages/deleted/delete-phone"), token,
+            body = buildJsonObject { put("ids", JsonArray(ids.map { JsonPrimitive(it) })) }.toString(),
+            serializer = QueuedIds.serializer(),
+        ).map { it.queued }
 
     override suspend fun openEvents(baseUrl: String, token: String, lastEventId: String?): ApiResult<OpenStream> =
         withContext(Dispatchers.IO) {

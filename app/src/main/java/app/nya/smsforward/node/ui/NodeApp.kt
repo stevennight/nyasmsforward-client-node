@@ -59,7 +59,14 @@ private enum class Screen {
 private enum class Tab { MESSAGES, PLATFORM, FORWARD }
 
 /** A conversation to open, from a notification or another app's "send SMS to …". */
-data class OpenRequest(val threadId: Long, val address: String, val draft: String = "", val nonce: Long = System.nanoTime())
+data class OpenRequest(
+    val threadId: Long,
+    val address: String,
+    val draft: String = "",
+    /** A 「平台」 conversation instead (from its notification). */
+    val platform: RemoteConversation? = null,
+    val nonce: Long = System.nanoTime(),
+)
 
 /**
  * The forwarding screens; with the "短信应用" feature switched on, a "短信" tab (the phone's own inbox) in front of
@@ -173,6 +180,7 @@ private fun FullApp(
     // A tab whose feature was just switched off falls back to the first one left.
     val tab = if (selected in tabs) selected else tabs.first()
     var platformThread by remember { mutableStateOf<RemoteConversation?>(null) }
+    var platformTrash by rememberSaveable { mutableStateOf(false) }
     var threadId by rememberSaveable { mutableStateOf<Long?>(null) }
     var address by rememberSaveable { mutableStateOf("") }
     var draft by rememberSaveable { mutableStateOf("") }
@@ -182,6 +190,13 @@ private fun FullApp(
 
     LaunchedEffect(openRequest) {
         openRequest ?: return@LaunchedEffect
+        if (openRequest.platform != null) {
+            if (Tab.PLATFORM in tabs) {
+                onTab(Tab.PLATFORM)
+                platformThread = openRequest.platform
+            }
+            return@LaunchedEffect
+        }
         onTab(Tab.MESSAGES)
         trash = false
         blocked = false
@@ -199,6 +214,12 @@ private fun FullApp(
     if (tab == Tab.MESSAGES && blocked) {
         BackHandler { blocked = false }
         Box(Modifier.fillMaxSize().safeDrawingPadding()) { BlockedScreen(runtime, onBack = { blocked = false }) }
+        return
+    }
+
+    if (tab == Tab.PLATFORM && platformTrash) {
+        BackHandler { platformTrash = false }
+        Box(Modifier.fillMaxSize().safeDrawingPadding()) { PlatformRecycleBinScreen(runtime, onBack = { platformTrash = false }) }
         return
     }
 
@@ -246,6 +267,7 @@ private fun FullApp(
                         onTab(Tab.FORWARD)
                         onOpenViewSettings()
                     },
+                    onOpenTrash = { platformTrash = true },
                 )
                 Tab.FORWARD -> forwarding()
             }

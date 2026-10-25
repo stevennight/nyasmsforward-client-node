@@ -60,6 +60,9 @@ interface Outbox {
     fun pending(limit: Int): List<OutboxItem>
 
     fun markDone(ids: List<Long>, now: Long)
+
+    /** Remembers the platform's message id of reported rows (row id → server id). */
+    fun setServerIds(byRow: Map<Long, Long>) {}
     fun markDead(id: Long, error: String, now: Long)
 
     /** Counts an upload attempt for the given rows (for the status screen and for diagnosing stuck rows). */
@@ -88,4 +91,6 @@ data class ReportRecord(
     val direction: String,
     val state: OutboxState,
     val error: String?,
+    /** The platform id of this message, once reported (null for older rows and pending ones). */
+    val serverId: Long? = null,
 )

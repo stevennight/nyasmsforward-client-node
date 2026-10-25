@@ -16,6 +16,8 @@ import app.nya.smsforward.node.service.NodeService
 import app.nya.smsforward.node.ui.NodeApp
 import app.nya.smsforward.node.ui.NyaTheme
 import app.nya.smsforward.node.ui.OpenRequest
+import app.nya.smsforward.node.view.RemoteConversation
+import app.nya.smsforward.node.view.RemoteMessage
 
 class MainActivity : ComponentActivity() {
     // Bumped every time the app comes back to the foreground, so screens re-check permissions the user may have just
@@ -61,7 +63,16 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun openRequestOf(intent: Intent?): OpenRequest? {
-        if (intent == null || !SmsAppFeature.isOn(this)) return null
+        if (intent == null) return null
+        // A 「平台」 notification: open that platform conversation.
+        intent.getStringExtra(EXTRA_PLATFORM_PEER_KEY)?.let { peerKey ->
+            val device = intent.getStringExtra(EXTRA_PLATFORM_DEVICE).orEmpty()
+            val card = intent.getStringExtra(EXTRA_PLATFORM_CARD)
+            val peer = intent.getStringExtra(EXTRA_PLATFORM_PEER).orEmpty()
+            val last = RemoteMessage(id = 0, deviceId = device, peer = peer, peerKey = peerKey, cardNumber = card)
+            return OpenRequest(0, "", platform = RemoteConversation(device, card, peer, peerKey, last))
+        }
+        if (!SmsAppFeature.isOn(this)) return null
         if (intent.hasExtra(EXTRA_ADDRESS)) {
             return OpenRequest(intent.getLongExtra(EXTRA_THREAD_ID, 0), intent.getStringExtra(EXTRA_ADDRESS).orEmpty())
         }
@@ -79,5 +90,9 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val EXTRA_THREAD_ID = "thread_id"
         const val EXTRA_ADDRESS = "address"
+        const val EXTRA_PLATFORM_DEVICE = "platform_device"
+        const val EXTRA_PLATFORM_CARD = "platform_card"
+        const val EXTRA_PLATFORM_PEER = "platform_peer"
+        const val EXTRA_PLATFORM_PEER_KEY = "platform_peer_key"
     }
 }

@@ -89,11 +89,15 @@ class Uploader(
         val byKey = outcomes.associateBy { it.dedupeKey }
         val now = clock()
         val done = ArrayList<Long>()
+        val serverIds = HashMap<Long, Long>()
         var dead = 0
         for (item in batch) {
             val outcome = byKey[item.dedupeKey] ?: continue
             when (outcome.status) {
-                "accepted", "duplicate" -> done += item.id
+                "accepted", "duplicate" -> {
+                    done += item.id
+                    outcome.id?.let { serverIds[item.id] = it }
+                }
                 "rejected" -> {
                     outbox.markDead(item.id, outcome.error ?: "rejected", now)
                     dead++
@@ -102,6 +106,7 @@ class Uploader(
             }
         }
         outbox.markDone(done, now)
+        outbox.setServerIds(serverIds)
         return done.size + dead
     }
 

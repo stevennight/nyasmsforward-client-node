@@ -47,7 +47,7 @@ internal object MigrationSnapshot {
             listOf(
                 "dedupe_key" to T, "peer" to T, "body" to T, "sim_slot" to I, "device_time" to I, "created_at" to I,
                 "state" to T, "attempts" to I, "last_error" to T, "finished_at" to I, "direction" to T, "backfill" to I,
-                "card_number" to T,
+                "card_number" to T, "server_id" to I,
             ),
             replace = false, onlyWhenMovingPairing = true,
         ),

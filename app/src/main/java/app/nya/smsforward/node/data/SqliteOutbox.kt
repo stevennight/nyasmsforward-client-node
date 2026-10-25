@@ -32,6 +32,13 @@ class SqliteOutbox(private val db: SqlDb) : Outbox {
         }
     }
 
+    override fun setServerIds(byRow: Map<Long, Long>) {
+        if (byRow.isEmpty()) return
+        db.transaction {
+            for ((row, server) in byRow) db.execute("UPDATE outbox SET server_id = ? WHERE id = ?", listOf(server, row))
+        }
+    }
+
     override fun markDead(id: Long, error: String, now: Long) {
         db.execute("UPDATE outbox SET state = 'dead', finished_at = ?, last_error = ? WHERE id = ?", listOf(now, error, id))
     }
@@ -59,11 +66,12 @@ class SqliteOutbox(private val db: SqlDb) : Outbox {
         }
 
     override fun reportRecords(): List<ReportRecord> =
-        db.query("SELECT peer, body, device_time, direction, state, last_error FROM outbox", emptyList()) { r ->
+        db.query("SELECT peer, body, device_time, direction, state, last_error, server_id FROM outbox", emptyList()) { r ->
             ReportRecord(
                 r.string(0), r.string(1), r.long(2), r.string(3),
                 OutboxState.entries.firstOrNull { it.wire == r.string(4) } ?: OutboxState.PENDING,
                 r.stringOrNull(5),
+                r.longOrNull(6),
             )
         }
 

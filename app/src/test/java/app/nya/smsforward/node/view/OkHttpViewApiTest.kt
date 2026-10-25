@@ -14,6 +14,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertIs
 import kotlin.test.assertNull
+import kotlin.test.assertTrue
 
 class OkHttpViewApiTest {
     private val server = MockWebServer().apply { start() }
@@ -103,6 +104,47 @@ class OkHttpViewApiTest {
         assertEquals("13800000000", body.getValue("cardNumber").jsonPrimitive.content)
         assertEquals("10086", body.getValue("peer").jsonPrimitive.content)
         assertFalse("deviceId" in body)
+    }
+
+    @Test
+    fun `replies, new messages and deletes send what the protocol asks for`() = runBlocking {
+        val task = """{"taskId":"t_1","deviceId":"d1","mode":"reply","recipient":"10086","recipientKey":"10086","body":"TD","status":"queued","error":"","createdAt":1}"""
+        server.enqueue(json(task, 201))
+        server.enqueue(json(task, 201))
+        server.enqueue(json("""{"deleted":[3]}"""))
+        server.enqueue(json("""{"deleted":12}"""))
+        server.enqueue(json("""{"queued":[3]}"""))
+        server.enqueue(json("""{"items":[{"id":3,"deviceId":"d1","peer":"10086","body":"x","deviceTime":1,"deletedAt":9}]}"""))
+
+        val t = assertIs<ApiResult.Ok<OutboundTask>>(api.reply(base, "t", 1042, "TD")).value
+        assertEquals("排队中（等待手机上线）", t.summary)
+        api.sendNew(base, "t", "d1", 2, "13800000000", "你好")
+        assertEquals(listOf(3L), assertIs<ApiResult.Ok<List<Long>>>(api.deleteMessages(base, "t", listOf(3), deletePhone = true)).value)
+        assertEquals(12, assertIs<ApiResult.Ok<Int>>(api.deleteConversations(base, "t", listOf(RemoteConversation("d1", "13800000000", "10086", "10086", RemoteMessage(id = 1))), deletePhone = false)).value)
+        api.deletePhoneCopies(base, "t", listOf(3))
+        val bin = assertIs<ApiResult.Ok<List<RemoteMessage>>>(api.deletedMessages(base, "t", before = 5, beforeAt = 99)).value
+        assertEquals(9L, bin.single().deletedAt)
+
+        val (r1, reply) = sent()
+        assertEquals("/api/v1/outbound", r1.path)
+        assertEquals(1042, reply.getValue("replyToMessageId").jsonPrimitive.content.toInt())
+        val (_, new) = sent()
+        assertEquals("d1", new.getValue("deviceId").jsonPrimitive.content)
+        assertEquals("2", new.getValue("simSlot").jsonPrimitive.content)
+        assertEquals("13800000000", new.getValue("to").jsonPrimitive.content)
+        assertFalse("replyToMessageId" in new)
+        val (r3, del) = sent()
+        assertEquals("/api/v1/messages/delete", r3.path)
+        assertEquals("true", del.getValue("deletePhone").jsonPrimitive.content)
+        val (r4, conv) = sent()
+        assertEquals("/api/v1/messages/delete-conversations", r4.path)
+        assertFalse("deletePhone" in conv)
+        val one = conv.getValue("conversations").toString()
+        assertTrue("13800000000" in one && "deviceId" !in one, one)
+        assertEquals("/api/v1/messages/deleted/delete-phone", sent().first.path)
+        val list = server.takeRequest().requestUrl!!
+        assertEquals("5", list.queryParameter("before"))
+        assertEquals("99", list.queryParameter("beforeAt"))
     }
 
     @Test
