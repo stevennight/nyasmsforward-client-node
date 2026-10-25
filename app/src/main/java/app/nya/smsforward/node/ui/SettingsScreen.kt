@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
@@ -35,6 +36,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -66,6 +68,7 @@ enum class SettingsPage(val title: String) {
     PERMISSIONS("权限与后台运行"),
     SIM("SIM 卡"),
     SMS_APP("短信应用"),
+    VIEW("查看"),
     ABOUT("关于与更新"),
 }
 
@@ -91,6 +94,7 @@ fun SettingsScreen(state: UiState, runtime: NodeRuntime, resumeTick: Int, page: 
                 }
                 SettingsPage.SIM -> SimCard(state, runtime)
                 SettingsPage.SMS_APP -> SmsAppSections(state, runtime)
+                SettingsPage.VIEW -> ViewSections(runtime)
                 SettingsPage.ABOUT -> UpdateCard()
             }
         }
@@ -138,6 +142,9 @@ private fun SettingsHome(state: UiState, runtime: NodeRuntime, resumeTick: Int, 
                 SettingsGroup("功能") {
                     val (smsText, smsTone) = smsAppSummary(state)
                     SettingsRow(Icons.Filled.Email, "短信应用", smsText, subtitleTone = smsTone) { onOpen(SettingsPage.SMS_APP) }
+                    val viewState by runtime.view.state.collectAsState()
+                    val (viewText, viewTone) = viewSummary(viewState)
+                    SettingsRow(Icons.Filled.Search, "查看", viewText, subtitleTone = viewTone) { onOpen(SettingsPage.VIEW) }
                     val (sendText, sendTone) = sendSummary(state)
                     SettingsRow(Icons.AutoMirrored.Filled.Send, "代发短信", sendText, subtitleTone = sendTone) { onOpen(SettingsPage.SEND) }
                     SettingsRow(

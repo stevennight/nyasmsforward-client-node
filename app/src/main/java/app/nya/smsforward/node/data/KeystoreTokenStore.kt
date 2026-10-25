@@ -18,8 +18,14 @@ import javax.crypto.spec.GCMParameterSpec
  * If the key is ever lost the token simply reads back as null, and the app asks to be paired again: an unreadable
  * token can never crash the receiver or leak.
  */
-class KeystoreTokenStore(context: Context) : TokenStore {
-    private val prefs = context.applicationContext.getSharedPreferences("node_token", Context.MODE_PRIVATE)
+// [prefsName] / [keyAlias]: the receiver token uses the defaults; the 「查看」 feature's client token has its own pair, so
+// forgetting one never touches the other.
+class KeystoreTokenStore(
+    context: Context,
+    prefsName: String = "node_token",
+    private val keyAlias: String = KEY_ALIAS,
+) : TokenStore {
+    private val prefs = context.applicationContext.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
 
     override fun read(): String? {
         val blob = prefs.getString(KEY_BLOB, null) ?: return null
@@ -48,10 +54,10 @@ class KeystoreTokenStore(context: Context) : TokenStore {
 
     private fun key(): SecretKey {
         val store = KeyStore.getInstance(ANDROID_KEYSTORE).apply { load(null) }
-        (store.getKey(KEY_ALIAS, null) as? SecretKey)?.let { return it }
+        (store.getKey(keyAlias, null) as? SecretKey)?.let { return it }
         val generator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, ANDROID_KEYSTORE)
         generator.init(
-            KeyGenParameterSpec.Builder(KEY_ALIAS, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
+            KeyGenParameterSpec.Builder(keyAlias, KeyProperties.PURPOSE_ENCRYPT or KeyProperties.PURPOSE_DECRYPT)
                 .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
                 .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                 .setKeySize(256)

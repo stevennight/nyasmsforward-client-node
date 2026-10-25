@@ -36,6 +36,9 @@ import app.nya.smsforward.node.sms.SimSlots
 import app.nya.smsforward.node.work.SentSyncScheduler
 import app.nya.smsforward.node.work.UploadScheduler
 import app.nya.smsforward.node.work.Uploader
+import app.nya.smsforward.node.view.OkHttpViewApi
+import app.nya.smsforward.node.view.PrefsViewSettings
+import app.nya.smsforward.node.view.ViewController
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -179,6 +182,20 @@ class NodeRuntime private constructor(private val app: Context) {
             app,
             sims = { SimSlots.activeSims(app, settings.manualSimNumbers) },
             recycle = { id -> recycler.recycle(id, Recycler.ORIGIN_PLATFORM) },
+        )
+    }
+
+    // --- 「查看」: this phone as a client of the platform, with its own identity and token (view/) ---
+    val view by lazy {
+        ViewController(
+            OkHttpViewApi(),
+            PrefsViewSettings(app),
+            KeystoreTokenStore(app, prefsName = "view_token", keyAlias = "nyasmsforward.node.view.token"),
+            scope,
+            appVersion = BuildConfig.VERSION_NAME,
+            defaultName = (Build.MODEL?.takeIf { it.isNotBlank() } ?: "Android 手机") + "（查看）",
+            ownDeviceId = { settings.deviceId },
+            suggestedServer = { settings.serverUrl },
         )
     }
 

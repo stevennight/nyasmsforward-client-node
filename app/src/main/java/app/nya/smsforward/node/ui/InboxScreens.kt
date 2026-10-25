@@ -436,7 +436,7 @@ internal fun MenuLine(text: String, danger: Boolean = false, onClick: () -> Unit
 
 /** The search field that replaces the title while searching. */
 @Composable
-private fun SearchBar(query: String, onChange: (String) -> Unit, onClose: () -> Unit) {
+internal fun SearchBar(query: String, onChange: (String) -> Unit, onClose: () -> Unit, placeholder: String = "搜索短信、号码或联系人") {
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { focus.requestFocus() }
     Row(Modifier.fillMaxWidth().padding(start = 4.dp, end = 12.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -445,7 +445,7 @@ private fun SearchBar(query: String, onChange: (String) -> Unit, onClose: () -> 
             value = query,
             onValueChange = onChange,
             modifier = Modifier.weight(1f).focusRequester(focus),
-            placeholder = { Text("搜索短信、号码或联系人") },
+            placeholder = { Text(placeholder) },
             leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
             trailingIcon = {
                 if (query.isNotEmpty()) IconButton(onClick = { onChange("") }) { Icon(Icons.Filled.Clear, contentDescription = "清除") }
@@ -461,7 +461,7 @@ internal fun toast(context: Context, text: String) = Toast.makeText(context, tex
 private fun displayName(context: Context, address: String): String = ContactNames.lookup(context, address) ?: address
 
 @Composable
-private fun Avatar(name: String, address: String, size: Int = 44) {
+internal fun Avatar(name: String, address: String, size: Int = 44) {
     val palette = listOf(Color(0xFF4964D8), Color(0xFF0E9384), Color(0xFFDC6803), Color(0xFF7A5AF8), Color(0xFFD92D20), Color(0xFF2E90FA))
     val hasName = name != address && name.isNotBlank()
     Box(
@@ -595,7 +595,7 @@ private fun ConversationRow(c: ConversationSummary, selected: Boolean, reports: 
 }
 
 @Composable
-private fun CodeTag(code: String) {
+internal fun CodeTag(code: String) {
     Text(
         code,
         modifier = Modifier.background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(6.dp)).padding(horizontal = 6.dp, vertical = 1.dp),

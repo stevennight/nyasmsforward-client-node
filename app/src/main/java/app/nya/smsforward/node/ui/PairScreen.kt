@@ -46,7 +46,7 @@ import kotlinx.coroutines.withContext
  * token. The receiver pairs with a one-time code only; it never asks for the admin password.
  */
 @Composable
-fun PairScreen(state: UiState, runtime: NodeRuntime, onOpenSmsApp: () -> Unit) {
+fun PairScreen(state: UiState, runtime: NodeRuntime, onOpenSmsApp: () -> Unit, onOpenView: () -> Unit) {
     val scope = rememberCoroutineScope()
     var url by rememberSaveable { mutableStateOf(state.serverUrl.orEmpty()) }
     var code by rememberSaveable { mutableStateOf("") }
@@ -172,6 +172,8 @@ fun PairScreen(state: UiState, runtime: NodeRuntime, onOpenSmsApp: () -> Unit) {
             TextButton(onClick = onOpenSmsApp, modifier = Modifier.fillMaxWidth()) {
                 Text(if (state.smsApp) "短信应用已开启 · 设置" else "不连接服务器，只用作短信应用")
             }
+            // Or only view what the other receiver phones report (this phone then needs no pairing as a receiver).
+            TextButton(onClick = onOpenView, modifier = Modifier.fillMaxWidth()) { Text("不当接收端，只查看平台上的短信") }
         }
     }
 }

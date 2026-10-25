@@ -44,6 +44,17 @@ class MainActivity : ComponentActivity() {
         openRequestOf(intent)?.let { openRequest = it }
     }
 
+    // The 「平台」 tab's live stream runs while the app is visible.
+    override fun onStart() {
+        super.onStart()
+        NodeRuntime.get(this).view.setForeground(true)
+    }
+
+    override fun onStop() {
+        NodeRuntime.get(this).view.setForeground(false)
+        super.onStop()
+    }
+
     override fun onResume() {
         super.onResume()
         resumeTick++

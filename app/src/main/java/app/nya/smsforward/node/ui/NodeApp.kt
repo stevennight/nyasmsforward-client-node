@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationBar
@@ -39,6 +40,7 @@ import app.nya.smsforward.node.migrate.MigrationResult
 import app.nya.smsforward.node.node.ConnectionKind
 import app.nya.smsforward.node.node.NodeRuntime
 import app.nya.smsforward.node.node.UiState
+import app.nya.smsforward.node.view.RemoteConversation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -49,9 +51,12 @@ private enum class Screen {
 
     /** The "短信应用" page opened from the pairing screen, for using the app as an SMS app without a server. */
     SMS_APP,
+
+    /** The 「查看」 page opened from the pairing screen: only viewing, no receiver pairing. */
+    VIEW,
 }
 
-private enum class Tab { MESSAGES, FORWARD }
+private enum class Tab { MESSAGES, PLATFORM, FORWARD }
 
 /** A conversation to open, from a notification or another app's "send SMS to …". */
 data class OpenRequest(val threadId: Long, val address: String, val draft: String = "", val nonce: Long = System.nanoTime())
@@ -77,7 +82,16 @@ fun NodeApp(runtime: NodeRuntime, resumeTick: Int, openRequest: OpenRequest? = n
     // tab when the feature is off means turning it on lands there, not in the inbox.
     var screen by rememberSaveable { mutableStateOf(Screen.STATUS) }
     var settingsPage by rememberSaveable { mutableStateOf<SettingsPage?>(null) }
-    var tab by rememberSaveable { mutableStateOf(if (state.smsApp) Tab.MESSAGES else Tab.FORWARD) }
+    val viewState by runtime.view.state.collectAsState()
+    var tab by rememberSaveable {
+        mutableStateOf(
+            when {
+                state.smsApp -> Tab.MESSAGES
+                viewState.enabled -> Tab.PLATFORM
+                else -> Tab.FORWARD
+            },
+        )
+    }
     val forwarding: @Composable () -> Unit = {
         ForwardingScreens(state, runtime, resumeTick, screen, { screen = it }, settingsPage, { settingsPage = it })
     }
@@ -100,7 +114,8 @@ fun NodeApp(runtime: NodeRuntime, resumeTick: Int, openRequest: OpenRequest? = n
     }
 
     val main: @Composable () -> Unit = {
-        if (state.smsApp) FullApp(runtime, resumeTick, openRequest, tab, { tab = it }, forwarding) else forwarding()
+        val tabs = listOfNotNull(Tab.MESSAGES.takeIf { state.smsApp }, Tab.PLATFORM.takeIf { viewState.enabled }, Tab.FORWARD)
+        if (tabs.size > 1) FullApp(runtime, resumeTick, openRequest, tabs, tab, { tab = it }, forwarding, onOpenViewSettings = { screen = Screen.VIEW }) else forwarding()
     }
     if (BuildConfig.LEGACY_FULL) {
         Column(Modifier.fillMaxSize()) {
@@ -127,7 +142,15 @@ private fun ForwardingScreens(
             BackHandler { onScreen(Screen.STATUS) }
             SettingsPageFrame(SettingsPage.SMS_APP.title, onBack = { onScreen(Screen.STATUS) }) { SmsAppSections(state, runtime) }
         }
-        state.connection != ConnectionKind.PAIRED -> PairScreen(state, runtime, onOpenSmsApp = { onScreen(Screen.SMS_APP) })
+        screen == Screen.VIEW -> {
+            BackHandler { onScreen(Screen.STATUS) }
+            SettingsPageFrame(SettingsPage.VIEW.title, onBack = { onScreen(Screen.STATUS) }) { ViewSections(runtime) }
+        }
+        state.connection != ConnectionKind.PAIRED -> PairScreen(
+            state, runtime,
+            onOpenSmsApp = { onScreen(Screen.SMS_APP) },
+            onOpenView = { onScreen(Screen.VIEW) },
+        )
         screen == Screen.SETTINGS -> {
             BackHandler { onScreen(Screen.STATUS) }
             SettingsScreen(state, runtime, resumeTick, settingsPage, onSettingsPage, onBack = { onScreen(Screen.STATUS) })
@@ -141,10 +164,15 @@ private fun FullApp(
     runtime: NodeRuntime,
     resumeTick: Int,
     openRequest: OpenRequest?,
-    tab: Tab,
+    tabs: List<Tab>,
+    selected: Tab,
     onTab: (Tab) -> Unit,
     forwarding: @Composable () -> Unit,
+    onOpenViewSettings: () -> Unit,
 ) {
+    // A tab whose feature was just switched off falls back to the first one left.
+    val tab = if (selected in tabs) selected else tabs.first()
+    var platformThread by remember { mutableStateOf<RemoteConversation?>(null) }
     var threadId by rememberSaveable { mutableStateOf<Long?>(null) }
     var address by rememberSaveable { mutableStateOf("") }
     var draft by rememberSaveable { mutableStateOf("") }
@@ -171,6 +199,15 @@ private fun FullApp(
     if (tab == Tab.MESSAGES && blocked) {
         BackHandler { blocked = false }
         Box(Modifier.fillMaxSize().safeDrawingPadding()) { BlockedScreen(runtime, onBack = { blocked = false }) }
+        return
+    }
+
+    val remote = platformThread
+    if (tab == Tab.PLATFORM && remote != null) {
+        BackHandler { platformThread = null }
+        Box(Modifier.fillMaxSize().safeDrawingPadding()) {
+            key(remote.key) { PlatformThreadScreen(runtime, remote, onBack = { platformThread = null }) }
+        }
         return
     }
 
@@ -202,12 +239,26 @@ private fun FullApp(
                     onOpenTrash = { trash = true },
                     onOpenBlocked = { blocked = true },
                 )
+                Tab.PLATFORM -> PlatformScreen(
+                    runtime,
+                    onOpen = { platformThread = it },
+                    onOpenSettings = {
+                        onTab(Tab.FORWARD)
+                        onOpenViewSettings()
+                    },
+                )
                 Tab.FORWARD -> forwarding()
             }
         }
         NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-            NavigationBarItem(selected = tab == Tab.MESSAGES, onClick = { onTab(Tab.MESSAGES) }, icon = { Icon(Icons.Filled.Email, contentDescription = null) }, label = { Text("短信") })
-            NavigationBarItem(selected = tab == Tab.FORWARD, onClick = { onTab(Tab.FORWARD) }, icon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null) }, label = { Text("转发") })
+            for (t in tabs) {
+                val (icon, label) = when (t) {
+                    Tab.MESSAGES -> Icons.Filled.Email to "短信"
+                    Tab.PLATFORM -> Icons.Filled.Search to "平台"
+                    Tab.FORWARD -> Icons.AutoMirrored.Filled.Send to "转发"
+                }
+                NavigationBarItem(selected = tab == t, onClick = { onTab(t) }, icon = { Icon(icon, contentDescription = null) }, label = { Text(label) })
+            }
         }
     }
 
