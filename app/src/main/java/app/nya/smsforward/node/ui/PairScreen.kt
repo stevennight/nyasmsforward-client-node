@@ -18,6 +18,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,7 +46,7 @@ import kotlinx.coroutines.withContext
  * token. The receiver pairs with a one-time code only; it never asks for the admin password.
  */
 @Composable
-fun PairScreen(state: UiState, runtime: NodeRuntime) {
+fun PairScreen(state: UiState, runtime: NodeRuntime, onOpenSmsApp: () -> Unit) {
     val scope = rememberCoroutineScope()
     var url by rememberSaveable { mutableStateOf(state.serverUrl.orEmpty()) }
     var code by rememberSaveable { mutableStateOf("") }
@@ -166,6 +167,11 @@ fun PairScreen(state: UiState, runtime: NodeRuntime) {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
+
+            // Without a server the app can still be the phone's SMS app; the switch lives in the settings otherwise.
+            TextButton(onClick = onOpenSmsApp, modifier = Modifier.fillMaxWidth()) {
+                Text(if (state.smsApp) "短信应用已开启 · 设置" else "不连接服务器，只用作短信应用")
+            }
         }
     }
 }

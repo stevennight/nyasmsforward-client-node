@@ -59,7 +59,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private enum class SettingsPage(val title: String) {
+enum class SettingsPage(val title: String) {
     SERVER("服务器与连接"),
     SEND("代发短信"),
     SYNC("同步发出的短信"),
@@ -73,13 +73,14 @@ private enum class SettingsPage(val title: String) {
  * Settings as a list of entries, each showing its current state, that open a page of their own; the way Android's own
  * settings are laid out. Only the entry list scrolls here; a page holds the details of one topic.
  */
+// [page] is kept by the caller (NodeApp), so switching the "短信应用" feature, which rebuilds the layout around the
+// settings, leaves the user on the page they were on.
 @Composable
-fun SettingsScreen(state: UiState, runtime: NodeRuntime, resumeTick: Int, onBack: () -> Unit) {
-    var page by rememberSaveable { mutableStateOf<SettingsPage?>(null) }
+fun SettingsScreen(state: UiState, runtime: NodeRuntime, resumeTick: Int, page: SettingsPage?, onPage: (SettingsPage?) -> Unit, onBack: () -> Unit) {
     val open = page
     if (open != null) {
-        BackHandler { page = null }
-        SettingsPageFrame(open.title, onBack = { page = null }) {
+        BackHandler { onPage(null) }
+        SettingsPageFrame(open.title, onBack = { onPage(null) }) {
             when (open) {
                 SettingsPage.SERVER -> ServerSections(state, runtime)
                 SettingsPage.SEND -> SendSettingsSections(state, runtime, resumeTick)
@@ -95,11 +96,11 @@ fun SettingsScreen(state: UiState, runtime: NodeRuntime, resumeTick: Int, onBack
         }
         return
     }
-    SettingsHome(state, runtime, resumeTick, onBack, onOpen = { page = it })
+    SettingsHome(state, runtime, resumeTick, onBack, onOpen = onPage)
 }
 
 @Composable
-private fun SettingsPageFrame(title: String, onBack: () -> Unit, content: @Composable () -> Unit) {
+fun SettingsPageFrame(title: String, onBack: () -> Unit, content: @Composable () -> Unit) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         Column(Modifier.safeDrawingPadding().verticalScroll(rememberScrollState())) {
             NyaTopBar(title, onBack = onBack)
@@ -131,7 +132,12 @@ private fun SettingsHome(state: UiState, runtime: NodeRuntime, resumeTick: Int, 
                 DeviceHeader(state, onClick = { onOpen(SettingsPage.SERVER) })
 
                 SettingsGroup("转发") {
-                    SettingsRow(Icons.Filled.Home, "服务器与连接", hostOf(state.serverUrl).ifBlank { "未设置" }) { onOpen(SettingsPage.SERVER) }
+                    SettingsRow(Icons.Filled.Home, "服务器与连接", hostOf(state.serverUrl).ifBlank { "未设置" }, divider = false) { onOpen(SettingsPage.SERVER) }
+                }
+
+                SettingsGroup("功能") {
+                    val (smsText, smsTone) = smsAppSummary(state)
+                    SettingsRow(Icons.Filled.Email, "短信应用", smsText, subtitleTone = smsTone) { onOpen(SettingsPage.SMS_APP) }
                     val (sendText, sendTone) = sendSummary(state)
                     SettingsRow(Icons.AutoMirrored.Filled.Send, "代发短信", sendText, subtitleTone = sendTone) { onOpen(SettingsPage.SEND) }
                     SettingsRow(
@@ -140,11 +146,6 @@ private fun SettingsHome(state: UiState, runtime: NodeRuntime, resumeTick: Int, 
                         if (!state.syncSent) "关闭" else "开启 · " + when (state.backfillDays) { 0 -> "不回补历史"; else -> "回补最近 ${state.backfillDays} 天" },
                         divider = false,
                     ) { onOpen(SettingsPage.SYNC) }
-                }
-
-                SettingsGroup("功能") {
-                    val (smsText, smsTone) = smsAppSummary(state)
-                    SettingsRow(Icons.Filled.Email, "短信应用", smsText, subtitleTone = smsTone, divider = false) { onOpen(SettingsPage.SMS_APP) }
                 }
 
                 SettingsGroup("这台手机") {

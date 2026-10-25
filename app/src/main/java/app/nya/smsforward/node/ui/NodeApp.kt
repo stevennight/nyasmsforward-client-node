@@ -38,11 +38,18 @@ import app.nya.smsforward.node.migrate.LegacyStatus
 import app.nya.smsforward.node.migrate.MigrationResult
 import app.nya.smsforward.node.node.ConnectionKind
 import app.nya.smsforward.node.node.NodeRuntime
+import app.nya.smsforward.node.node.UiState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
-private enum class Screen { STATUS, SETTINGS }
+private enum class Screen {
+    STATUS,
+    SETTINGS,
+
+    /** The "短信应用" page opened from the pairing screen, for using the app as an SMS app without a server. */
+    SMS_APP,
+}
 
 private enum class Tab { MESSAGES, FORWARD }
 
@@ -65,6 +72,16 @@ fun NodeApp(runtime: NodeRuntime, resumeTick: Int, openRequest: OpenRequest? = n
         }
     }
 
+    // Kept here, above both layouts: switching the "短信应用" feature swaps FullApp and the plain forwarding screens, and
+    // the user should stay where they are (normally on the settings page with that switch). Starting on the forwarding
+    // tab when the feature is off means turning it on lands there, not in the inbox.
+    var screen by rememberSaveable { mutableStateOf(Screen.STATUS) }
+    var settingsPage by rememberSaveable { mutableStateOf<SettingsPage?>(null) }
+    var tab by rememberSaveable { mutableStateOf(if (state.smsApp) Tab.MESSAGES else Tab.FORWARD) }
+    val forwarding: @Composable () -> Unit = {
+        ForwardingScreens(state, runtime, resumeTick, screen, { screen = it }, settingsPage, { settingsPage = it })
+    }
+
     var legacy by remember { mutableStateOf<LegacyStatus>(LegacyStatus.None) }
     var migrated by remember { mutableStateOf<MigrationResult?>(null) }
     LaunchedEffect(resumeTick) { legacy = withContext(Dispatchers.IO) { LegacyMigration.detect(context) } }
@@ -83,7 +100,7 @@ fun NodeApp(runtime: NodeRuntime, resumeTick: Int, openRequest: OpenRequest? = n
     }
 
     val main: @Composable () -> Unit = {
-        if (state.smsApp) FullApp(runtime, resumeTick, openRequest) else ForwardingScreens(runtime, resumeTick)
+        if (state.smsApp) FullApp(runtime, resumeTick, openRequest, tab, { tab = it }, forwarding) else forwarding()
     }
     if (BuildConfig.LEGACY_FULL) {
         Column(Modifier.fillMaxSize()) {
@@ -96,24 +113,38 @@ fun NodeApp(runtime: NodeRuntime, resumeTick: Int, openRequest: OpenRequest? = n
 }
 
 @Composable
-private fun ForwardingScreens(runtime: NodeRuntime, resumeTick: Int) {
-    val state by runtime.state.collectAsState()
-    var screen by rememberSaveable { mutableStateOf(Screen.STATUS) }
-    when (state.connection) {
-        ConnectionKind.PAIRED -> when (screen) {
-            Screen.STATUS -> StatusScreen(state, runtime, resumeTick, onOpenSettings = { screen = Screen.SETTINGS })
-            Screen.SETTINGS -> {
-                BackHandler { screen = Screen.STATUS }
-                SettingsScreen(state, runtime, resumeTick, onBack = { screen = Screen.STATUS })
-            }
+private fun ForwardingScreens(
+    state: UiState,
+    runtime: NodeRuntime,
+    resumeTick: Int,
+    screen: Screen,
+    onScreen: (Screen) -> Unit,
+    settingsPage: SettingsPage?,
+    onSettingsPage: (SettingsPage?) -> Unit,
+) {
+    when {
+        screen == Screen.SMS_APP -> {
+            BackHandler { onScreen(Screen.STATUS) }
+            SettingsPageFrame(SettingsPage.SMS_APP.title, onBack = { onScreen(Screen.STATUS) }) { SmsAppSections(state, runtime) }
         }
-        else -> PairScreen(state, runtime)
+        state.connection != ConnectionKind.PAIRED -> PairScreen(state, runtime, onOpenSmsApp = { onScreen(Screen.SMS_APP) })
+        screen == Screen.SETTINGS -> {
+            BackHandler { onScreen(Screen.STATUS) }
+            SettingsScreen(state, runtime, resumeTick, settingsPage, onSettingsPage, onBack = { onScreen(Screen.STATUS) })
+        }
+        else -> StatusScreen(state, runtime, resumeTick, onOpenSettings = { onScreen(Screen.SETTINGS) })
     }
 }
 
 @Composable
-private fun FullApp(runtime: NodeRuntime, resumeTick: Int, openRequest: OpenRequest?) {
-    var tab by rememberSaveable { mutableStateOf(Tab.MESSAGES) }
+private fun FullApp(
+    runtime: NodeRuntime,
+    resumeTick: Int,
+    openRequest: OpenRequest?,
+    tab: Tab,
+    onTab: (Tab) -> Unit,
+    forwarding: @Composable () -> Unit,
+) {
     var threadId by rememberSaveable { mutableStateOf<Long?>(null) }
     var address by rememberSaveable { mutableStateOf("") }
     var draft by rememberSaveable { mutableStateOf("") }
@@ -123,7 +154,7 @@ private fun FullApp(runtime: NodeRuntime, resumeTick: Int, openRequest: OpenRequ
 
     LaunchedEffect(openRequest) {
         openRequest ?: return@LaunchedEffect
-        tab = Tab.MESSAGES
+        onTab(Tab.MESSAGES)
         trash = false
         blocked = false
         threadId = openRequest.threadId
@@ -171,12 +202,12 @@ private fun FullApp(runtime: NodeRuntime, resumeTick: Int, openRequest: OpenRequ
                     onOpenTrash = { trash = true },
                     onOpenBlocked = { blocked = true },
                 )
-                Tab.FORWARD -> ForwardingScreens(runtime, resumeTick)
+                Tab.FORWARD -> forwarding()
             }
         }
         NavigationBar(containerColor = MaterialTheme.colorScheme.surface) {
-            NavigationBarItem(selected = tab == Tab.MESSAGES, onClick = { tab = Tab.MESSAGES }, icon = { Icon(Icons.Filled.Email, contentDescription = null) }, label = { Text("短信") })
-            NavigationBarItem(selected = tab == Tab.FORWARD, onClick = { tab = Tab.FORWARD }, icon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null) }, label = { Text("转发") })
+            NavigationBarItem(selected = tab == Tab.MESSAGES, onClick = { onTab(Tab.MESSAGES) }, icon = { Icon(Icons.Filled.Email, contentDescription = null) }, label = { Text("短信") })
+            NavigationBarItem(selected = tab == Tab.FORWARD, onClick = { onTab(Tab.FORWARD) }, icon = { Icon(Icons.AutoMirrored.Filled.Send, contentDescription = null) }, label = { Text("转发") })
         }
     }
 
