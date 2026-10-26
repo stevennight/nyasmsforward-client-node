@@ -74,6 +74,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -580,12 +584,21 @@ private fun ConversationRow(c: ConversationSummary, selected: Boolean, reports: 
                     insight is SmsInsight.Bank -> InsightTag((if (insight.income) "+" else "-") + insight.amount, if (insight.income) Tone.OK else Tone.BAD)
                 }
                 Text(
-                    (if (c.last.incoming) "" else if (c.last.failed) "发送失败：" else "我：") + c.last.body,
+                    when {
+                        c.draft != null -> "草稿：" + c.draft
+                        c.last.incoming -> c.last.body
+                        c.last.failed -> "发送失败：" + c.last.body
+                        else -> "我：" + c.last.body
+                    },
                     modifier = Modifier.weight(1f),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     style = MaterialTheme.typography.bodyMedium,
-                    color = if (c.last.failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                    color = when {
+                        c.draft == null && c.last.failed -> MaterialTheme.colorScheme.error
+                        c.draft != null -> MaterialTheme.colorScheme.primary
+                        else -> MaterialTheme.colorScheme.onSurfaceVariant
+                    },
                 )
                 if (c.unread > 0) {
                     Box(
@@ -693,6 +706,7 @@ fun ThreadScreen(runtime: NodeRuntime, threadId: Long, address: String, initialD
     val lastSub = rows.lastOrNull { it.incoming }?.subId ?: rows.lastOrNull()?.subId
     val sim = sims.firstOrNull { it.subscriptionId == (simChoice ?: lastSub) } ?: sims.firstOrNull()
     var draft by rememberSaveable { mutableStateOf(initialDraft) }
+    var resendRow by remember { mutableStateOf<SmsRow?>(null) }
     var selected by remember { mutableStateOf(emptySet<Long>()) }
     val selecting = selected.isNotEmpty()
     val listState = rememberLazyListState()
@@ -707,6 +721,39 @@ fun ThreadScreen(runtime: NodeRuntime, threadId: Long, address: String, initialD
         if (!present.containsAll(selected)) selected = selected.intersect(present)
     }
     BackHandler(enabled = selecting) { selected = emptySet() }
+
+    // The unsent text is a draft in the system SMS database: loaded once when the conversation opens (unless another
+    // app handed over a text), saved when leaving it or the app, and shown in the list as 草稿.
+    val threadOf = rows.firstOrNull()?.threadId?.takeIf { it > 0 } ?: threadId
+    var draftLoaded by rememberSaveable { mutableStateOf(initialDraft.isNotEmpty()) }
+    var savedDraft by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(threadOf) {
+        if (draftLoaded || threadOf <= 0) return@LaunchedEffect
+        val stored = withContext(Dispatchers.IO) { store.draft(threadOf) }
+        if (stored != null && draft.isEmpty()) draft = stored
+        savedDraft = stored.orEmpty()
+        draftLoaded = true
+    }
+    val latestDraft by rememberUpdatedState(draft)
+    val latestThread by rememberUpdatedState(threadOf)
+    val latestDefault by rememberUpdatedState(isDefault)
+    val latestLoaded by rememberUpdatedState(draftLoaded || threadOf <= 0)
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        fun save() {
+            val text = latestDraft.trim()
+            if (!latestDefault || !latestLoaded || text == savedDraft.orEmpty()) return
+            savedDraft = text
+            val thread = latestThread
+            runtime.scope.launch(Dispatchers.IO) { store.saveDraft(address, thread, text) }
+        }
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) save() }
+        lifecycle.addObserver(observer)
+        onDispose {
+            lifecycle.removeObserver(observer)
+            save()
+        }
+    }
 
     Box(Modifier.fillMaxSize()) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -753,7 +800,12 @@ fun ThreadScreen(runtime: NodeRuntime, threadId: Long, address: String, initialD
                         row,
                         selected = row.id in selected,
                         report = reports.of(row),
-                        onClick = { if (selecting) selected = selected.toggle(row.id) },
+                        onClick = {
+                            when {
+                                selecting -> selected = selected.toggle(row.id)
+                                row.failed && isDefault -> resendRow = row
+                            }
+                        },
                         onLongClick = {
                             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                             selected = selected.toggle(row.id)
@@ -816,6 +868,23 @@ fun ThreadScreen(runtime: NodeRuntime, threadId: Long, address: String, initialD
     }
     SnackbarHost(snackbar, modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 72.dp))
     }
+
+    resendRow?.let { row ->
+        AlertDialog(
+            onDismissRequest = { resendRow = null },
+            title = { Text("重新发送？") },
+            text = { Text(row.body, maxLines = 6, overflow = TextOverflow.Ellipsis) },
+            confirmButton = {
+                TextButton(onClick = {
+                    resendRow = null
+                    scope.launch(Dispatchers.IO) {
+                        if (!LocalSender.resend(context, row)) withContext(Dispatchers.Main) { toast(context, "发送失败") }
+                    }
+                }) { Text("重新发送") }
+            },
+            dismissButton = { TextButton(onClick = { resendRow = null }) { Text("取消") } },
+        )
+    }
 }
 
 @Composable
@@ -855,12 +924,14 @@ private fun Bubble(row: SmsRow, selected: Boolean, report: ReportRecord?, onClic
         Row(Modifier.padding(horizontal = 6.dp, vertical = 2.dp)) {
             Text(
                 shortTime(row.date) + when {
-                    row.failed -> " · 发送失败"
+                    row.failed -> " · 发送失败，点按重发"
                     row.sending -> " · 发送中…"
+                    row.delivered -> " · 已送达"
+                    row.notDelivered -> " · 未送达"
                     else -> ""
                 },
                 style = MaterialTheme.typography.labelSmall,
-                color = if (row.failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (row.failed || row.notDelivered) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
             )
             ReportLabel(report)
         }

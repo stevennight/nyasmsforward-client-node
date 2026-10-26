@@ -33,6 +33,7 @@ object SmsAppFeature {
     private const val PREFS = "node_settings" // the same file as PrefsSettings, so a migration moves it along
     private const val KEY_ON = "sms_app_enabled"
     private const val KEY_TURNING_OFF = "sms_app_turning_off"
+    private const val KEY_DELIVERY_REPORTS = "sms_delivery_reports"
 
     // The alias' name comes from the manifest namespace, which is the same in every flavor (unlike the package name).
     private const val ENTRY_ALIAS = "app.nya.smsforward.node.SmsEntry"
@@ -50,6 +51,13 @@ object SmsAppFeature {
     fun isOn(context: Context): Boolean = prefs(context).getBoolean(KEY_ON, BuildConfig.LEGACY_FULL)
 
     fun isTurningOff(context: Context): Boolean = prefs(context).getBoolean(KEY_TURNING_OFF, false)
+
+    /** Ask the carrier for a delivery report of what is sent from the inbox (已送达 / 未送达). On by default. */
+    fun deliveryReports(context: Context): Boolean = prefs(context).getBoolean(KEY_DELIVERY_REPORTS, true)
+
+    fun setDeliveryReports(context: Context, on: Boolean) {
+        prefs(context).edit().putBoolean(KEY_DELIVERY_REPORTS, on).apply()
+    }
 
     /** Switches the feature on: the components first, so the system's "default SMS app" dialog can offer this app. */
     fun turnOn(context: Context) {

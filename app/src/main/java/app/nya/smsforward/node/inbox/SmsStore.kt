@@ -53,7 +53,8 @@ class SmsStore(context: Context) {
         }
         val summaries = Conversations.group(light)
         val full = rowsById(summaries.map { it.last.id })
-        return summaries.map { s -> full[s.last.id]?.let { s.copy(last = it) } ?: s }
+        val drafts = drafts()
+        return summaries.map { s -> (full[s.last.id]?.let { s.copy(last = it) } ?: s).copy(draft = drafts[s.threadId]) }
     }
 
     /** Full rows by id, in batches that stay under SQLite's limit on terms. */
@@ -66,9 +67,38 @@ class SmsStore(context: Context) {
         return query("body LIKE ? ESCAPE '\\' OR address LIKE ? ESCAPE '\\'", arrayOf(pattern, pattern), "date DESC LIMIT $limit")
     }
 
-    /** One conversation, oldest first. */
+    /** One conversation, oldest first. Its draft is not a message: see [draft]. */
     fun thread(threadId: Long, limit: Int = 1000): List<SmsRow> =
-        query("thread_id = ?", arrayOf(threadId.toString()), "date DESC LIMIT $limit").reversed()
+        query("thread_id = ? AND type != ?", arrayOf(threadId.toString(), DRAFT.toString()), "date DESC LIMIT $limit").reversed()
+
+    // --- drafts: kept in the system SMS database (type 3), where other SMS apps look for them too ---
+
+    /** The unsent text of a conversation, if any. */
+    fun draft(threadId: Long): String? =
+        if (threadId <= 0) null else query("thread_id = ? AND type = ?", arrayOf(threadId.toString(), DRAFT.toString()), "date DESC LIMIT 1").firstOrNull()?.body
+
+    /** Thread id → draft text, for the conversation list. */
+    fun drafts(): Map<Long, String> =
+        query("type = ?", arrayOf(DRAFT.toString()), "date DESC").filter { it.body.isNotBlank() }.associate { it.threadId to it.body }
+
+    /** Replaces the conversation's draft with [body]; a blank one just removes it. Only the default app can write. */
+    fun saveDraft(address: String, threadId: Long, body: String) {
+        val thread = threadId.takeIf { it > 0 } ?: threadIdFor(address)
+        if (thread <= 0) return
+        write { resolver.delete(Telephony.Sms.CONTENT_URI, "thread_id = ? AND type = ?", arrayOf(thread.toString(), DRAFT.toString())) }
+        if (body.isBlank()) return
+        insert(
+            ContentValues().apply {
+                put(Telephony.Sms.THREAD_ID, thread)
+                put(Telephony.Sms.ADDRESS, address)
+                put(Telephony.Sms.BODY, body)
+                put(Telephony.Sms.DATE, System.currentTimeMillis())
+                put(Telephony.Sms.TYPE, DRAFT)
+                put(Telephony.Sms.READ, 1)
+                put(Telephony.Sms.SEEN, 1)
+            },
+        )
+    }
 
     fun row(id: Long): SmsRow? = query("_id = ?", arrayOf(id.toString()), "_id").firstOrNull()
 
@@ -119,7 +149,14 @@ class SmsStore(context: Context) {
         },
     )
 
-    fun insertOutgoing(address: String, body: String, subId: Int?, type: Int = Telephony.Sms.MESSAGE_TYPE_OUTBOX): Uri? = insert(
+    /** [status]: Telephony.Sms.STATUS_PENDING when a delivery report was asked for. */
+    fun insertOutgoing(
+        address: String,
+        body: String,
+        subId: Int?,
+        type: Int = Telephony.Sms.MESSAGE_TYPE_OUTBOX,
+        status: Int = Telephony.Sms.STATUS_NONE,
+    ): Uri? = insert(
         ContentValues().apply {
             put(Telephony.Sms.ADDRESS, address)
             put(Telephony.Sms.BODY, body)
@@ -127,9 +164,26 @@ class SmsStore(context: Context) {
             put(Telephony.Sms.TYPE, type)
             put(Telephony.Sms.READ, 1)
             put(Telephony.Sms.SEEN, 1)
+            put(Telephony.Sms.STATUS, status)
             if (subId != null) put(Telephony.Sms.SUBSCRIPTION_ID, subId)
         },
     )
+
+    /** A failed message goes out again from the same row: back to the outbox, stamped now, delivery report reset. */
+    fun prepareResend(id: Long, status: Int): Uri? {
+        val uri = ContentUris.withAppendedId(Telephony.Sms.CONTENT_URI, id)
+        val values = ContentValues().apply {
+            put(Telephony.Sms.TYPE, Telephony.Sms.MESSAGE_TYPE_OUTBOX)
+            put(Telephony.Sms.DATE, System.currentTimeMillis())
+            put(Telephony.Sms.STATUS, status)
+        }
+        return uri.takeIf { (write { resolver.update(uri, values, null, null) } ?: 0) > 0 }
+    }
+
+    /** The delivery report came in. */
+    fun setStatus(uri: Uri, status: Int) {
+        write { resolver.update(uri, ContentValues().apply { put(Telephony.Sms.STATUS, status) }, null, null) }
+    }
 
     fun setType(uri: Uri, type: Int) {
         write { resolver.update(uri, ContentValues().apply { put(Telephony.Sms.TYPE, type) }, null, null) }
@@ -202,7 +256,7 @@ class SmsStore(context: Context) {
 
     private fun readRows(c: Cursor): List<SmsRow> {
         val out = ArrayList<SmsRow>(c.count)
-        val hasSub = c.columnCount > 8
+        val hasSub = c.columnCount > 9
         while (c.moveToNext()) {
             out += SmsRow(
                 id = c.getLong(0),
@@ -213,7 +267,8 @@ class SmsStore(context: Context) {
                 type = c.getInt(5),
                 read = c.getInt(6) != 0,
                 dateSent = c.getLong(7),
-                subId = if (hasSub && !c.isNull(8)) c.getInt(8) else null,
+                status = if (c.isNull(8)) Telephony.Sms.STATUS_NONE else c.getInt(8),
+                subId = if (hasSub && !c.isNull(9)) c.getInt(9) else null,
             )
         }
         return out
@@ -221,7 +276,9 @@ class SmsStore(context: Context) {
 
     companion object {
         private const val TAG = "SmsStore"
-        private val PROJECTION = arrayOf("_id", "thread_id", "address", "body", "date", "type", "read", "date_sent", "sub_id")
+        // sub_id stays last: query() drops it for ROMs whose provider lacks the column.
+        private val PROJECTION = arrayOf("_id", "thread_id", "address", "body", "date", "type", "read", "date_sent", "status", "sub_id")
+        private const val DRAFT = Telephony.Sms.MESSAGE_TYPE_DRAFT
         private val LIGHT_PROJECTION = arrayOf("_id", "thread_id", "address", "date", "type", "read")
 
         fun isDefaultSmsApp(context: Context): Boolean = Telephony.Sms.getDefaultSmsPackage(context) == context.packageName

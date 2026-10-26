@@ -118,6 +118,26 @@ fun SmsAppSections(state: UiState, runtime: NodeRuntime) {
         }
     }
 
+    if (state.smsApp) {
+        SectionCard("发送") {
+            var reports by remember { mutableStateOf(SmsAppFeature.deliveryReports(context)) }
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                androidx.compose.foundation.layout.Column(Modifier.weight(1f).padding(end = 12.dp)) {
+                    Text("送达报告")
+                    Text(
+                        "在「短信」里发出的短信，请运营商回报对方有没有收到，会话里显示“已送达”或“未送达”。少数运营商不回报，那就一直只显示发送结果。",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(checked = reports, onCheckedChange = {
+                    reports = it
+                    SmsAppFeature.setDeliveryReports(context, it)
+                })
+            }
+            Text("发送失败的短信点一下就能重新发送；没发出去的内容会存成草稿，下次打开会话还在。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+
     if (askSwitchDefault) {
         AlertDialog(
             onDismissRequest = {

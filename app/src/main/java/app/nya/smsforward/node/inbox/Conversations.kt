@@ -19,18 +19,22 @@ data class SmsRow(
     val subId: Int? = null,
     /** When the network stamped it (received messages), 0 when unknown. */
     val dateSent: Long = 0,
+    /** Telephony.Sms.STATUS: the delivery report of a sent message. -1 none asked, 32 waiting, 0 delivered, 64 failed. */
+    val status: Int = Telephony.Sms.STATUS_NONE,
 ) {
     val incoming: Boolean get() = type == Telephony.Sms.MESSAGE_TYPE_INBOX
     val failed: Boolean get() = type == Telephony.Sms.MESSAGE_TYPE_FAILED
     val sending: Boolean get() = type == Telephony.Sms.MESSAGE_TYPE_OUTBOX || type == Telephony.Sms.MESSAGE_TYPE_QUEUED
+    val delivered: Boolean get() = type == Telephony.Sms.MESSAGE_TYPE_SENT && status == Telephony.Sms.STATUS_COMPLETE
+    val notDelivered: Boolean get() = type == Telephony.Sms.MESSAGE_TYPE_SENT && status == Telephony.Sms.STATUS_FAILED
     val code: String? by lazy { if (incoming) VerificationCode.find(body) else null }
 
     /** A bank movement or parcel pickup code, for messages without a verification code. */
     val insight: SmsInsight? by lazy { if (incoming && code == null) SmsInsight.find(body) else null }
 }
 
-/** A conversation in the list: the newest message, and how many incoming ones are unread. */
-data class ConversationSummary(val threadId: Long, val address: String, val last: SmsRow, val unread: Int)
+/** A conversation in the list: the newest message, how many incoming ones are unread, and an unsent draft. */
+data class ConversationSummary(val threadId: Long, val address: String, val last: SmsRow, val unread: Int, val draft: String? = null)
 
 object Conversations {
 

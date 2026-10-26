@@ -57,6 +57,7 @@ import androidx.compose.ui.unit.dp
 import app.nya.smsforward.node.data.BlockedSms
 import app.nya.smsforward.node.data.SmsTrash
 import app.nya.smsforward.node.inbox.ContactNames
+import app.nya.smsforward.node.inbox.SystemBlocklist
 import app.nya.smsforward.node.node.NodeRuntime
 import app.nya.smsforward.node.sms.BlockRule
 import app.nya.smsforward.node.sms.SpamCategory
@@ -288,9 +289,86 @@ private fun RulesPane(
                 onRemove = onRemove,
             )
         }
+        item { SystemBlockCard() }
         if (on.isEmpty() && rules.none { it.kind == BlockRule.NUMBER || it.kind == BlockRule.KEYWORD }) {
             item { Banner(Tone.WARN, Icons.Filled.Warning, "现在没有任何拦截规则，所有短信都会进收件箱。") }
         }
+    }
+}
+
+/**
+ * The phone's own block list, the one the dialer uses too. Unlike this app's rules it drops a message before any app
+ * sees it: nothing is kept and nothing reaches the platform, so adding a number asks first.
+ */
+@Composable
+private fun SystemBlockCard() {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var tick by remember { mutableIntStateOf(0) }
+    val available = remember(tick) { SystemBlocklist.available(context) }
+    val numbers by produceState(emptyList<String>(), tick) { value = withContext(Dispatchers.IO) { SystemBlocklist.list(context) } }
+    var value by rememberSaveable { mutableStateOf("") }
+    var confirm by remember { mutableStateOf<String?>(null) }
+
+    SectionCard(if (numbers.isEmpty()) "系统黑名单" else "系统黑名单（${numbers.size}）") {
+        Text(
+            "手机自带的黑名单，拨号器里拉黑的号码也在这里。这些号码的短信和来电在到达任何 App 之前就被系统拦掉了：" +
+                "不进拦截记录，也不会上报到平台。只想挡在收件箱外、仍然上报的，请用上面的“号码黑名单”。",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (!available) {
+            Text("设为默认短信应用后才能查看和修改。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+            return@SectionCard
+        }
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(
+                value = value,
+                onValueChange = { value = it },
+                modifier = Modifier.weight(1f),
+                label = { Text("号码") },
+                singleLine = true,
+                shape = RoundedCornerShape(12.dp),
+            )
+            FilledTonalButton(enabled = value.isNotBlank(), onClick = { confirm = value.trim() }) { Text("添加") }
+        }
+        if (numbers.isNotEmpty()) {
+            Column(Modifier.fillMaxWidth()) {
+                numbers.forEachIndexed { i, number ->
+                    if (i > 0) HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = .6f))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(number, modifier = Modifier.weight(1f), fontWeight = FontWeight.Medium)
+                        IconButton(onClick = {
+                            scope.launch {
+                                val ok = withContext(Dispatchers.IO) { SystemBlocklist.remove(context, number) }
+                                toast(context, if (ok) "已移出系统黑名单" else "移出失败")
+                                tick++
+                            }
+                        }) { Icon(Icons.Filled.Close, contentDescription = "移出 $number") }
+                    }
+                }
+            }
+        }
+    }
+
+    confirm?.let { number ->
+        AlertDialog(
+            onDismissRequest = { confirm = null },
+            title = { Text("加入系统黑名单？") },
+            text = { Text("$number 的短信和来电都会被系统直接挡掉，本 App 收不到，也不会上报到平台。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirm = null
+                    scope.launch {
+                        val ok = withContext(Dispatchers.IO) { SystemBlocklist.add(context, number) }
+                        toast(context, if (ok) "已加入系统黑名单" else "添加失败")
+                        if (ok) value = ""
+                        tick++
+                    }
+                }) { Text("加入", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirm = null }) { Text("取消") } },
+        )
     }
 }
 
