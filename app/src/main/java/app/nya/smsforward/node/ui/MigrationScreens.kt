@@ -120,7 +120,7 @@ fun MigrationScreen(status: LegacyStatus, result: MigrationResult?, runtime: Nod
                             if (!legacyLeft) {
                                 Banner(Tone.OK, Icons.Filled.CheckCircle, "2. 旧版已卸载")
                             } else {
-                                Text("2. 卸载旧版「Nya 短信」", fontWeight = FontWeight.Medium)
+                                Text("2. 卸载「Nya 短信（旧版）」", fontWeight = FontWeight.Medium)
                                 Hint("在接下来的系统页面里点「卸载」。手机里的短信不会因此丢失。")
                                 OutlinedButton(
                                     onClick = {
@@ -210,7 +210,7 @@ fun LegacyNotice(resumeTick: Int) {
             Modifier.windowInsetsPadding(WindowInsets.statusBars).padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            Text(if (handedOver) "已迁移到新版「短信接收端」" else "完整版已合并到新版「短信接收端」", color = fg, fontWeight = FontWeight.Bold)
+            Text(if (handedOver) "已迁移到新版「Nya 短信」" else "完整版已合并到新版「Nya 短信」", color = fg, fontWeight = FontWeight.Bold)
             Text(
                 if (handedOver) {
                     "设置和配对已经交给新版，本 App 不再上报。请在新版里设为默认短信应用，然后卸载本 App。"

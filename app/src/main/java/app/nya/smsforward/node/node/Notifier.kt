@@ -34,7 +34,7 @@ object Notifier {
         val text = if (pending > 0) "有 $pending 条短信还没上报，短信仍在继续接收。点这里重新配对。" else "点这里重新配对，短信不会丢。"
         val notification = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("短信接收端需要重新配对")
+            .setContentTitle("Nya 短信：接收端需要重新配对")
             .setContentText(text)
             .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setContentIntent(open)

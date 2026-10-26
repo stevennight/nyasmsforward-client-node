@@ -1,12 +1,14 @@
 # NyaSmsForward Client-Node
 
-NyaSmsForward 的**接收端**（Android，Kotlin + Jetpack Compose）：装在放 SIM 卡收短信的那台手机上，监听短信并上报到服务端；可选接收平台下发的发送任务（回复 / 新发），由手机代发；可选同步手机自带短信 App 里发出的短信。
+「Nya 短信」：NyaSmsForward 的 Android 端（Kotlin + Jetpack Compose），三个功能按需打开：
 
-> 你平时用来看短信、回复短信的主力手机装的是 `nyasmsforward-client`，不是这个 App。
+- **接收端**（转发）：装在放 SIM 卡收短信的那台手机上，监听短信并上报到服务端；可选接收平台下发的发送任务（回复 / 新发），由手机代发；可选同步手机自带短信 App 里发出的短信。
+- **短信应用**（可选）：设为默认短信应用，在手机上收发、拦截、删除短信，见下文。
+- **查看**（可选）：看平台上所有手机上报的短信并回复、删除，见下文。Android 上可以代替 `nyasmsforward-client`（它仍然是 Windows 客户端）。
 
 ## 短信应用（可选功能，默认关闭）
 
-只有一个安装包 `NyaSmsForward-Node_<版本>.apk`（包名 `app.nya.smsforward.node`，老的普通版原地升级）。装上后和原来的普通版一样只做转发；在「设置 → 功能 → 短信应用」打开后，才多出下面这些：
+只有一个安装包 `NyaSmsForward-Node_<版本>.apk`（App 名称「Nya 短信」，0.6.0 之前叫「短信接收端」；包名 `app.nya.smsforward.node`，老的普通版原地升级）。装上后和原来的普通版一样只做转发；在「设置 → 功能 → 短信应用」打开后，才多出下面这些：
 
 | | 关闭（默认） | 开启 |
 |---|---|---|
